@@ -15,10 +15,10 @@ from pprint import pprint
 now = datetime.datetime.now
 global_start = now() #Used to log when a series of samples were run together
 
-pipeline_directory = "/home/upmc/Documents/Variant_Discovery_Pipeline"
-initial_working_directory = os.getcwd()
+PIPELINE_DIRECTORY = "/home/upmc/Documents/Variant_Discovery_Pipeline"
+#initial_working_directory = PIPELINE_DIRECTORY
 file_exists_string = "SKIPPING {program}: THE FILE {f} ALREADY EXISTS!"
-
+console_log_file_filename = os.path.join(PIPELINE_DIRECTORY, "console_log_file.txt")
 """Set up the logger"""
 
 logger = logging.getLogger('genome_pipeline')
@@ -47,11 +47,11 @@ def generate_file_md5(filename, blocksize=2**20):
                 break
             m.update( buf )
     return m.hexdigest()
-
+"""
 class DefaultConfig:
 	def __init__(self, filename = None):
 
-		self.working_directory = os.getcwd()
+		self.working_directory = PIPELINE_DIRECTORY
 		if filename:
 			print("Loading config file from ", filename)
 			self.config = self.load_file(filename)
@@ -282,7 +282,9 @@ class DefaultConfig:
 		filename = "pipeline_options.json"
 		with open(filename, 'w') as file1:
 			file1.write(json.dumps(self.config, indent = 4, sort_keys = True))
-
+"""
+def checkdir(path):
+	if not os.path.isdir(path): os.makedirs(path)
 #----------------------------------------------------------------------------------------------------
 #---------------------------------------- Logging functions -----------------------------------------
 #----------------------------------------------------------------------------------------------------
@@ -305,7 +307,7 @@ def csv_log(rows, filename = None):
 			for field in fieldnames:
 				value = row.get(field, "")
 				if isinstance(value, (list, set)): value = '|'.join(value)
-				if isinstance(value, str): value = value.replace(os.getcwd(), 'cwd/')
+				if isinstance(value, str): value = value.replace(PIPELINE_DIRECTORY, 'cwd/')
 
 			row['Global Start'] = global_start
 			writer.writerow(row)
@@ -366,15 +368,20 @@ def Terminal(command, label = None, show_output = False, timeout = None):
 	#Try using exceptions to catch timeout errors
 	logging.info("System Command: " + str(command))
 	if show_output:
+		print(terminal_label)
 		process = os.system(command)
 	else:
 		#from subprocess import STDOUT, check_output
 		#output = subprocess.check_output(command, stderr=subprocess.STDOUT, timeout=timeout)
 		command = shlex.split(command)
+		#command += ['>', 'console_output.txt']
 		#print(command)
 		try:
-			process = subprocess.call(command, timeout=timeout, shell=False)
-		except:
+			with open(console_log_file_filename, 'a') as console_log_file:
+				process = subprocess.call(command, timeout=timeout, shell=False, stdout = console_log_file)
+		except Exception as exception:
+			print("EXCEPTION: ", exception)
+			logging.error(exception)
 			process = None
 
 	return process
@@ -447,7 +454,7 @@ def GDC_DNAseq(sample, options, file_types, output_dir):
 		destination_file = os.path.join(destination, f['basic_info']['file_name'])
 		submitter_ids[destination_file] = f['submitter_id']
 
-		source = os.path.join(initial_working_directory, file_id, f['file_name'])
+		source = os.path.join(PIPELINE_DIRECTORY, file_id, f['file_name'])
 		tries = 5
 		while tries > 0 and not os.path.isfile(destination_file):
 			tries -= 1
@@ -685,7 +692,7 @@ def run_commands(commands, start = 0, patientID = "", command_label = ""):
 		
 		if not os.path.isfile(output_file):
 			logging.info("{0}: Running {1} of {2} commands ({3}): {4}".format(patientID, index+1, len(commands), label, command))
-			Terminal(command, show_output = True)
+			Terminal(command, show_output = False)
 		else:
 			logging.info("{0}: Skipping {1} of {2} commands ({3}) (the output already exists) : {4}".format(patientID, index+1, len(commands), label, output_file))
 			print("\t\t\t{0} already exists.".format(output_file))
@@ -767,7 +774,7 @@ def MuSE(sample, options):
 
 		logger.info("{0} (MuSE 1 of 2 - Call Command): {1}".format(sample['PatientID'], call_command))
 		Terminal(call_command,
-			label = 'MuSE (call)')
+			label = 'MuSE (call)', show_output = True)
 	else:
 		logger.info("{0} (MuSE 1 of 2 - Call Command): The file already exists as ".format(sample['PatientID'], output_prefix + '.MuSE.txt'))
 		print("\t\tThe call file already exists!")
@@ -782,7 +789,7 @@ def MuSE(sample, options):
 			dbSNP = options['Reference Files']['dbSNP'])
 		logger.info("{0} (MuSE 2 of 2 - Sump Command): {1}".format(sample['PatientID'], sump_command))
 		Terminal(sump_command,
-			label = 'MuSE (sump)', show_output = False)
+			label = 'MuSE (sump)', show_output = True)
 	else:
 		logger.info("{0} (MuSE 2 of 2 - Sump Command): The file already exists as ".format(sample['PatientID'], muse_sump_output))
 		print("\t\tThe sump vcf file already exists!")
@@ -1351,7 +1358,7 @@ def Mutect_pon_detection(sample, options):
 		options['Pipeline Options']['panel of normals'], 
 		"6_panel_of_normals/artifacts/", 'Artifacts')
 	pon_output = os.path.join(output_folder, "{sample}.artifact.vcf".format(sample = sample['NormalID']))
-	#pon_output = os.path.join(os.getcwd(), pon_output)
+	#pon_output = os.path.join(PIPELINE_DIRECTORY, pon_output)
 
 	if not os.path.isdir(_output_dir): os.makedirs(_output_dir)
 
@@ -1380,6 +1387,273 @@ def Mutect_pon_detection(sample, options):
 	}
 
 	return sample, pon_log
+
+def HaplotypeCaller(sample, options):
+	sample, bqsr_log = BQSR(sample, options)
+	#UnifiedGenotyper(sample, options)
+	output_folder = os.path.join("/media/upmc/WD_Partition_2/RNA-seq/output/", sample['PatientID'], 'HaplotypeCaller')
+	
+	reference = options['Reference Files']['reference genome']
+	gatk_location = options['Programs']['GATK']
+	dna_output = os.path.join(output_folder, 'DNA-seq', "{0}_vs_{1}.raw_snps_indels.vcf".format(sample['NormalID'], sample['SampleID']))
+	rna_output = os.path.join(output_folder, 'RNA-seq', "{0}.RNA.raw_snps_indels.vcf".format(sample['SampleID']))
+	rna_filtered_output = os.path.join(output_folder, 'RNA-seq', "{0}.RNA.final_snps_indels.vcf".format(sample['SampleID']))
+	
+	checkdir(os.path.dirname(rna_output))
+	checkdir(os.path.dirname(dna_output))
+	
+	dna_command = """java -jar {GATK} \
+		-T HaplotypeCaller
+		-R {reference} \
+		-I {normal} \
+		-I {tumor} \
+		-L {targets} \
+		-nct 6 \
+		--dbsnp {dbSNP} \
+		-o {output}""".format(
+			GATK = gatk_location,
+			reference = reference,
+			normal = sample['NormalBAM'],
+			tumor = sample['TumorBAM'],
+			targets = sample['ExomeTargets'],
+			dbSNP = options['Reference Files']['dbSNP'],
+			output = dna_output)
+
+	rna_format_command = """java -jar {GATK} \
+		-T SplitNCigarReads \
+		-R {reference} \
+		-I {sample} \
+		-o {outputbam} \
+		-rf ReassignOneMappingQuality -RMQF 255 -RMQT 60 \
+		-UALLOW_N_CIGAR_READS
+		"""
+	rna_command = """java -jar {GATK} \
+		-T HaplotypeCaller
+		-R {reference} \
+		-I {sample} \
+		--dbsnp {dbSNP} \
+		--dontUseSoftClippedBases \
+		-o {output}""".format(
+			GATK = gatk_location,
+			reference = reference,
+			sample = sample['RNABAM'],
+			dbSNP = options['Reference Files']['dbSNP'],
+			output = rna_output)
+	#--filter_reads_with_N_cigar \
+	#-drf mappingqualityunavailable\
+	#-rf ReassignMappingQuality -DMQ 255 \
+	rna_filter_command = """java -jar {GATK} \
+		-T VariantFiltration \
+		-R {reference} \
+		-V {inputfile} \
+		-window 35 \
+		-cluster 3 \
+		--filterName FS --filterExpression \"FS > 30.0\" \
+		--filterName QD --filterExpression \"QD < 2.0\" \
+		-o {output}""".format(
+			GATK = gatk_location,
+			reference = reference,
+			inputfile = rna_output,
+			output = rna_filtered_output)
+
+	if not os.path.isfile(rna_output):
+		Terminal(rna_command)
+		
+	else:
+		print("RNA output already exists.")
+
+	if not os.path.isfile(rna_filtered_output):
+		print("FILTERING RNASEQ DATA")
+		Terminal(rna_filter_command, show_output = True)
+	else:
+		print("RNASEQ DATA ALREADY EXISTS")
+
+
+	if not os.path.isfile(dna_output) and False:
+		Terminal(dna_command)
+	else:
+		print('DNA Output already exists.')
+
+	hc_log = {
+		'Inputs': [],
+		'Outputs': [output_folder],
+		'Intermediate Files': [],
+		'Commands': []
+	}
+
+	return sample, hc_log
+
+def UnifiedGenotyper(sample, options):
+
+	output_folder = os.path.join("/media/upmc/WD_Partition_2/RNA-seq/output/", sample['PatientID'], 'UnifiedGenotyper')
+	
+	reference = options['Reference Files']['reference genome']
+	gatk_location = options['Programs']['GATK']
+	dna_output = os.path.join(output_folder, 'DNA-seq', "{0}_vs_{1}.raw_snps_indels.unifiedgenotyper.vcf".format(sample['NormalID'], sample['SampleID']))
+	rna_output = os.path.join(output_folder, 'RNA-seq', "{0}.RNA.raw_snps_indels.unifiedgenotyper.vcf".format(sample['SampleID']))
+	rna_filtered_output = os.path.join(output_folder, 'RNA-seq', "{0}.RNA.final_snps_indels.unifiedgenotyper.vcf".format(sample['SampleID']))
+	checkdir(os.path.dirname(rna_output))
+	checkdir(os.path.dirname(dna_output))
+	dna_command = """java -jar {GATK} \
+		-T UnifiedGenotyper \
+		-R {reference} \
+		-I {normal} \
+		-I {tumor} \
+		-L {targets} \
+		-nct 6 \
+		--dbsnp {dbSNP} \
+		-o {output}""".format(
+			GATK = gatk_location,
+			reference = reference,
+			normal = sample['NormalBAM'],
+			tumor = sample['TumorBAM'],
+			targets = sample['ExomeTargets'],
+			dbSNP = options['Reference Files']['dbSNP'],
+			output = dna_output)
+
+	rna_command = """java -jar {GATK} \
+		-T UnifiedGenotyper \
+		-R {reference} \
+		-I {sample} \
+		--dbsnp {dbSNP} \
+		-nct 6 \
+		--maxRuntime 30 \
+		--filter_reads_with_N_cigar \
+		-o {output}""".format(
+			GATK = gatk_location,
+			reference = reference,
+			sample = sample['RNABAM'],
+			dbSNP = options['Reference Files']['dbSNP'],
+			output = rna_output)
+
+	rna_filter_command = """java ‐jar {GATK} \
+		‐T VariantFiltration 
+		‐R {reference} \
+		‐V {inputfile} \
+		‐window 35 \
+		‐cluster 3 \
+		‐filterName FS ‐filter "FS > 30.0" \
+		‐filterName QD ‐filter "QD < 2.0" \
+		‐o {output}""".format(
+			GATK = gatk_location,
+			reference = reference,
+			inputfile = rna_output,
+			output = rna_filtered_output)
+
+	if not os.path.isfile(rna_output):
+		Terminal(rna_command)
+		#Terminal(rna_filter_command)
+	else:
+		print("RNA output already exists.")
+
+	if not os.path.isfile(dna_output):
+		Terminal(dna_command)
+	else:
+		print('DNA Output already exists.')
+
+	ug_log = {
+		'Inputs': [],
+		'Outputs': [output_folder],
+		'Intermediate Files': [],
+		'Commands': []
+	}
+
+	return sample, ug_log
+
+def BQSR(sample, options):
+	reference = options['Reference Files']['reference Genome']
+	dbSNP = options['Reference Files']['dbSNP']
+	gatk_location = options['Programs']['GATK']
+	output_folder = os.path.join("/media/upmc/WD_Partition_2/RNA-seq", 'recalibrated_genomes', sample['PatientID'])
+	checkdir(output_folder)
+
+	recalibration_table = os.path.join(output_folder, "{0}.RNA.recalibration_data.table".format(sample['SampleID']))
+	covariate_table = os.path.join(output_folder, "{0}.RNA.covariate_data.table".format(sample['SampleID']))
+	recalibration_plots = os.path.join(output_folder, "{0}.RNA.recalibration_plots.pdf".format(sample['SampleID']))
+	cigar_bam = os.path.join(output_folder, "{0}.RNA.cigar.bam".format(sample['SampleID']))
+	realigned_bam = os.path.join(output_folder, "{0}.RNA.recalibrated.bam".format(sample['SampleID']))
+	_MESSAGE = """-L RESTRICTS ANALYSIS TO CHROM 1"""
+	
+	cigar_command = """java -jar {GATK} \
+		-T SplitNCigarReads \
+		-R {reference} \
+		-I {inputbam} \
+		-o {outputbam} \
+		-rf ReassignOneMappingQuality -RMQF 255 -RMQT 60 \
+		-U ALLOW_N_CIGAR_READS""".format(
+			GATK = gatk_location,
+			reference = reference,
+			inputbam = sample['RNABAM'],
+			outputbam = cigar_bam)
+
+	br_command = """java -jar {GATK} \
+		-T BaseRecalibrator \
+		-R {reference} \
+		-I {bam} \
+		-knownSites {dbSNP} \
+		-o {output}""".format(
+			GATK = gatk_location,
+			reference = reference,
+			dbSNP = dbSNP,
+			bam = cigar_bam,
+			output = recalibration_table)
+
+	re_command  = """java -jar {GATK} \
+		-T PrintReads \
+		-R {reference} \
+		-I {bam} \
+		-BQSR {table} \
+		-o {output}""".format(
+			GATK = gatk_location,
+			reference = reference,
+			bam = cigar_bam,
+			output = realigned_bam,
+			table = recalibration_table)
+
+	co_command = """java -jar {GATK} \
+		-T BaseRecalibrator \
+		-R {reference} \
+		-I {realigned_bam} \
+		-BQSR {table} \
+		-knownSites {dbSNP} \
+		-o {output}""".format(
+			GATK = gatk_location,
+			reference = reference,
+			dbSNP = dbSNP,
+			table = recalibration_table,
+			realigned_bam = realigned_bam,
+			output = covariate_table)
+
+	plot_command = """ java -jar {GATK} \
+		-T AnalyzeCovariates \
+		-R {reference} \
+		-before {before} \
+		-after {after} \
+		-plots {plots}""".format(
+			GATK = gatk_location,
+			reference = reference,
+			before = recalibration_table,
+			after = covariate_table,
+			plots = recalibration_plots)
+	#print(br_command)
+	#print(re_command)
+	#print(co_command)
+	#print(plot_command)
+	if not os.path.exists(cigar_bam):
+		Terminal(cigar_command)
+	if not os.path.exists(recalibration_table):
+		Terminal(br_command)
+	if not os.path.exists(realigned_bam):
+		Terminal(re_command)
+	if not os.path.exists(covariate_table):
+		Terminal(co_command)
+	if not os.path.exists(recalibration_plots):
+		Terminal(plot_command)
+	
+	bqsr_log = None
+	sample['RNABAM'] = realigned_bam
+	return sample, bqsr_log
+
 #----------------------------------------------------------------------------------------------------
 #------------------------------------ Evaluate Somatic Variants -------------------------------------
 #----------------------------------------------------------------------------------------------------
@@ -1394,8 +1668,6 @@ def Mutect_pon_detection(sample, options):
 
 def GetVariantList(sample, options):
 
-	vcf_folder = os.path.join(options['Pipeline Options'], sample['PatientID'])
-
 	patientID = sample['PatientID']
 	normalID  = sample['NormalID']
 	tumorID   = sample['SampleID']
@@ -1403,16 +1675,15 @@ def GetVariantList(sample, options):
 	variants   = {
 		#os.path.join(options['output']['Bambino'].format(patient = patientID),"{0}_vs_{1}.bambino.vcf".format(normalID, tumorID)),
 		#os.path.join(options['output']['Haplotypecaller'].format(patient = patientID), "{0}_vs_{1}.raw.snps.indels.vcf".join(normalID, tumorID)),
-		'muse':          os.path.join(vcf_folder, "{0}_vs_{1}.MuSE.vcf".format(normalID, tumorID)),
-		'mutect2':       os.path.join(vcf_folder, "{0}_vs_{1}.mutect2.vcf".format(normalID, tumorID)),
-		'somaticsniper': os.path.join(vcf_folder, "{0}_vs_{1}.somaticsniper.hq.vcf".format(normalID, tumorID)),
-		'strelka-indel': os.path.join(vcf_folder,"results", "{0}_vs_{1}.passed.somatic.indels.strelka.vcf".format(normalID, tumorID)),
-		'strelka-snv':   os.path.join(vcf_folder,"results", "{0}_vs_{1}.passed.somatic.snvs.strelka.vcf".format(normalID, tumorID)),
-		'varscan-indel':       os.path.join(vcf_folder, "{0}_vs_{1}.snp.Somatic.hc".format(normalID, tumorID)),
-		'varscan-snv': os.path.join()
+		'muse':          os.path.join(options['output']['MuSE'].format(patient = patientID), "{0}_vs_{1}.MuSE.vcf".format(normalID, tumorID)),
+		'mutect2':       os.path.join(options['output']['MuTect2'].format(patient = patientID), "{0}_vs_{1}.mutect2.vcf".format(normalID, tumorID)),
+		'somaticsniper': os.path.join(options['output']['SomaticSniper'].format(patient = patientID), "{0}_vs_{1}.somaticsniper.hq.vcf".format(normalID, tumorID)),
+		'strelka indel': os.path.join(options['output']['Strelka'].format(patient = patientID),"results", "{0}_vs_{1}.passed.somatic.indels.strelka.vcf".format(normalID, tumorID)),
+		'strelka snv':   os.path.join(options['output']['Strelka'].format(patient = patientID),"results", "{0}_vs_{1}.passed.somatic.snvs.strelka.vcf".format(normalID, tumorID)),
+		'varscan':       os.path.join(options['output']['Varscan (somatic)'].format(patient = patientID), "{0}_vs_{1}.snp.Somatic.hc".format(normalID, tumorID))
 	}
 
-	#variants = {k:v for k, v in variants.items() if os.path.isfile(v)}
+	variants = {k:v for k, v in variants.items() if os.path.isfile(v)}
 
 	return variants
 
@@ -1627,16 +1898,8 @@ def VariantRecalibrator(sample, options, variant_type):
 			prefix = prefix)
 
 def ProcessPipelineMethod(sample, options):
-	"""
-		1. Copy VCF Files to the processing directory
-			/Processing Directory
-				/PatientID
-					/raw_vcfs
-					/harmonized_vcfs
-					/processed_vcfs
-	"""
 	#-------------------------- make all of the relevant folders ----------------------------
-	pipeline_folder = os.path.join(os.getcwd(), '8_combined_variants') #Holds folders for each patient
+	pipeline_folder = os.path.join(PIPELINE_DIRECTORY, '8_combined_variants') #Holds folders for each patient
 	patient_folder = os.path.join(pipeline_folder, sample['PatientID']) #holds folders for an individual patient
 	raw_variant_folder = os.path.join(patient_folder, 'raw_variants')
 	annotated_variants_folder = os.path.join(patient_folder, 'annotated_variants')
@@ -1647,7 +1910,7 @@ def ProcessPipelineMethod(sample, options):
 	
 	#-------------------------- Get a list of all the variants used in this analysis ---------------------
 	sample_variants = GetVariantList(sample, options)
-	
+	pprint(sample_variants)
 	
 	#------------------------------ Annotate Variants ----------------------------------------
 	raw_variants = list()
@@ -1661,19 +1924,6 @@ def ProcessPipelineMethod(sample, options):
 
 	vep_log = VariantEffectPredictor(sample, options, raw_variants, annotated_variants_folder)
 
-def generate_truthset(variants, merged_variants, training_type):
-	""" Generates a truthset based on the passed variants/
-		Option 1: intersection of all 5 callers.
-		Option 2: Dream-SEQ data
-		Option 3: RNA-seq?
-	"""
-
-	if training_type == 'DREAM': pass
-	elif training_type == 'intersection':
-		#Use the intersection of the callers
-		#Open the merged/combined vcf file and mark all variants in the intersection as 'true'
-
-
 class ProcessPipeline:
 	def __init__(self, sample, options):
 		#------------- Move Variant Files --------------------
@@ -1686,6 +1936,7 @@ class ProcessPipeline:
 	def run(self, sample, options):
 
 		sample, log = VariantEffectPredictor(sample, options)
+
 
 #----------------------------------------------------------------------------------------------------
 #------------------------------------ Copynumber Tool Functions -------------------------------------
@@ -1833,7 +2084,7 @@ def varscan_copynumber(sample, options):
 	#--- Move the generated files from  the lcoal directory to the varscan directory----
 	varscan_outputs = list()
 	for suffix in ['.copynumber', '.copynumber.called', '.copynumber.called.gc', '.copynumber.called.homdel']:
-		shutil.move(os.path.join(os.getcwd(), varscan_basename + suffix), varscan_prefix + suffix)
+		shutil.move(os.path.join(PIPELINE_DIRECTORY, varscan_basename + suffix), varscan_prefix + suffix)
 		varscan_outputs.append(varscan_prefix + suffix)
 		
 	
@@ -1941,7 +2192,181 @@ def CNVkit(sample, options):
 
 	return sample, cnvkit_log
 
+def _configure_freec(sample, options, reference, chrlenfile, output_folder):
+	general_options = {
+		'bedtools': "/usr/bin/bedtools",
+		'breakPointThreshold': 0.8, #Default: 0.8 use something like 0.6 to get more segments (and thus more predicted CNVs)
+		'chrFiles': os.path.join(os.path.dirname(reference), 'chromosomes'),
+		'chrLenFile': chrlenfile, #a list of chromosomes and chromosome lengths. Basically the reference dict.
+		'maxThreads': '6',
+		'noisyData': 'TRUE',
+		'outputDir': output_folder,
+		'ploidy': '2',
+		'printNA': 'FALSE', #set FALSE to avoid printing "-1" to the _ratio.txt files Useful for exome-seq or targeted sequencing data
+		'readCountThreshold': '50', #Default: 10, recommended value >=50 for for exome data
+		'samtools': options['Programs']['samtools'],
+		#'sex': "",
+		'window': "0" #for whole exome sequencing: "window=0"
+	}
+	general_options = ["{0} = {1}".format(k, v) for k, v in general_options.items()]
+	
+	#[sample]
+	sample_options = {
+		'mateFile': sample['TumorPileup'],
+		'inputFormat': 'pileup',
+		'mateOrientation': '0'
+	}
+	sample_options = ["{0} = {1}".format(k, v) for k, v in sample_options.items()]
 
+	#[control]
+	control_options = {
+		'mateFile': sample['NormalPileup'],
+		'inputFormat': 'pileup',
+		'mateOrientation': '0'
+	}
+	
+	control_options = ["{0} = {1}".format(k, v) for k, v in control_options.items()]
+
+	#[BAF]
+	baf_options = {
+		'SNPfile': options['Reference Files']['dbSNP'],
+		"minimalCoveragePerPosition": '5'
+	}
+	baf_options = ["{0} = {1}".format(k, v) for k, v in baf_options.items()]
+
+	#[target]
+	target_options = {
+		"captureRegions": sample['ExomeTargets'],
+	}
+	target_options = ["{0} = {1}".format(k, v) for k, v in target_options.items()]
+
+	all_options = ["[general]"] + general_options
+	all_options +=["[sample]"] 	+ sample_options
+	all_options +=["[control"] 	+ control_options
+	all_options +=["[BAF]"]		+ baf_options
+	all_options +=["[target]"] 	+ target_options
+
+	return all_options
+
+def FREEC(sample, options):
+	#http://boevalab.com/FREEC/tutorial.html
+	print("\tControl-FREEC")
+	freec_location = options['Programs']['freec']
+	reference = options['Reference Files']['reference genome']
+	
+	output_folder = os.path.join(options['Pipeline Options']['copynumber pipeline folder'], sample['PatientID'], 'FREEC')
+	
+	if not os.path.isdir(output_folder):
+		os.makedirs(output_folder)
+	
+	freec_config_file = os.path.join(output_folder, "{0}_vs_{1}_config.txt".format(sample['NormalID'], sample['SampleID']))
+	chrlenfile = os.path.join(output_folder, "chromosome_lengths.txt")
+	genome_index_file = options['Reference Files']['reference genome'] + '.fai'
+	
+	script_folder = os.path.dirname(freec_location)
+	script_folder = os.path.join(os.path.dirname(script_folder), 'scripts')
+
+	assess_significance_script = os.path.join(script_folder, "assess_significance.R")
+	plot_script = os.path.join(script_folder, "makeGraph.R")
+	
+
+
+	print("Output Folder: ", output_folder)
+	print("FREEC Config File: ", freec_config_file)
+	print("Genome Index File: ", genome_index_file)
+	print("Script Folder: ", script_folder)
+	print("Significance Script: ", assess_significance_script)
+	print("Plot Script: ", plot_script)
+	
+
+	#--------------------- Generate Pileup Files -----------------------------
+	print("\t\t(1/6) Generate Pileup Files")
+	sample, pileup_log = Pileup(sample, options)
+	pprint(sample)
+	#--------------------- Generate ChrLen File  -----------------------------
+	print("\t\t(2/6) Detect Chromosome Lengths")
+	#generated as the intersection of the genome index and exome targets files
+	exclude_chroms = ['chr1_KI270706v1_random', 'chr4_GL000008v2_random', 'chr14_GL000009v2_random', 'chrUn_KI270742v1']
+	
+	
+	with open(sample['ExomeTargets'], 'r') as bedfile:
+		bedchrs = set([i[0] for i in csv.reader(bedfile, delimiter = '\t')])
+	
+	with open(genome_index_file, 'r') as file1:
+		chrlens = ['\t'.join(i[:3]) + '\n' for i in csv.reader(file1, delimiter = '\t') if (i[0] in bedchrs and i[0] not in exclude_chroms)]
+	
+	with open(chrlenfile, 'w') as file1:
+		[file1.write(i) for i in chrlens]
+
+	#--------------------- Generate Config File ------------------------------
+	print("\t\t(3/6) Configure FREEC")
+	#[general]
+	#_configure_freec(sample, options, reference, chrlenfile, output_folder):
+	all_options = _configure_freec(sample, options, reference, chrlenfile, output_folder)
+	with open(freec_config_file, 'w') as file1:
+		for line in all_options:
+			file1.write(line + '\n')
+	#------------------------------------- Run FREEC --------------------------------
+	print("\t\t(4/6) Main Analysis")
+	freec_command = "{freec} -conf {config}".format(
+		freec = freec_location,
+		config = freec_config_file)
+	Terminal(freec_command, show_output = True)
+
+	#------------------------------------ Add Log2Ratios ----------------------------
+	#--------------------------------- Calculate Significance -----------------------
+	print("\t\t(5/6) Calculate Significance")
+	
+	#files for the normal sample
+	normal_CNVs = os.path.join(output_folder, "{0}.pileup_normal_CNVs".format(sample['SampleID']))
+	normal_ratios= os.path.join(output_folder, "{0}.pileup_normal_ratio.txt".format(sample['SampleID']))
+	normal_baf_file = os.path.join(output_folder, "{0}.pileup_BAF.txt".format(sample['SampleID']))
+	
+	#files for the tumor sample
+	CNVs = os.path.join(output_folder, "{0}.pileup_CNVs".format(sample['SampleID']))
+	ratios = os.path.join(output_folder, "{0}.pileup_ratio.txt".format(sample['SampleID']))
+	baf_file = os.path.join(output_folder, "{0}.pileup_BAF.txt".format(sample['SampleID']))
+
+	normal_sig_command = "cat {script} | R --slave --args {CNVs} {ratios}".format(
+		script = assess_significance_script,
+		CNVs = normal_CNVs,
+		ratios = normal_ratios)
+	other_sig_command = "cat {script} | R --slave --args {CNVs} {ratios}".format(
+		script = assess_significance_script,
+		CNVs = CNVs,
+		ratios = ratios)
+	
+	Terminal(normal_sig_command, show_output = True)
+	Terminal(other_sig_command, show_output = True)
+	#--------------------------------- Generate Plots --------------------------------
+	print("\t\t(6/6) Generate Plots")
+	
+
+	print("Plot Script: ", plot_script)
+	
+	plot_command = "cat {script} | R --slave --args {ploidy} {ratios} {baf}"
+	normal_plot_command = plot_command.format(
+		script = plot_script,
+		ploidy = "2",
+		ratios = normal_ratios,
+		baf = normal_baf_file)
+	plot_command = plot_command.format(
+		script = plot_script,
+		ploidy = "2",
+		ratios = ratios,
+		baf = baf_file)
+	
+	Terminal(normal_plot_command, show_output = True)
+	Terminal(plot_command, show_output = True)
+
+	freec_log = {
+		'Inputs': [sample['NormalBAM'], sample['TumorBAM'], sample['ExomeTargets'], chrlenfile],
+		'Outputs': [output_folder],
+		'Intermediate Files': [],
+		'Commands': [freec_command]
+	}
+
+	return sample, freec_log
 
 #----------------------------------------------------------------------------------------------------
 #------------------------------------------ Pipelines -----------------------------------------------
@@ -2047,7 +2472,9 @@ class SomaticPipeline(Pipeline):
 			'mutect2': Mutect2,
 			'somaticsniper': SomaticSniper,
 			'strelka': Strelka,
-			'varscan': varscan_somatic
+			'varscan': varscan_somatic,
+			'haplotypecaller': HaplotypeCaller,
+			'unifiedgenotyper': UnifiedGenotyper
 		}
 		callers = [i.lower() for i in callers]
 		callers = {caller: available_callers[caller] for caller in callers if caller in available_callers}
@@ -2064,6 +2491,7 @@ class CopynumberPipeline(Pipeline):
 			'gdc': GDC_copynumber,
 			'varscan': varscan_copynumber,
 			'cnvkit': CNVkit,
+			'freec': FREEC
 		}
 		callers = [i.lower() for i in callers]
 		callers = {caller: available_callers[caller] for caller in callers if caller in available_callers}
@@ -2086,21 +2514,22 @@ class SampleFiles:
 		print("Finding NormalBAM")
 		if 'NormalBAM' not in sample.keys():
 			self.sample['NormalBAM'] = self._fetch_file(sample, config, normal_api)['path']
-			if not self.normal_only and 'TumorBAM' not in sample.keys():
-				self.sample['TumorBAM'] = self._fetch_file(sample, config, tumor_api)['path']
+		
+		if not self.normal_only and 'TumorBAM' not in sample.keys():
+			self.sample['TumorBAM'] = self._fetch_file(sample, config, tumor_api)['path']
 		
 
 		self.status = self.verify_files(self.sample, normal_api, tumor_api)
-
-		print("SAMPLEFILES STATUS MANUALLY SET FOR TESTING PURPOSES!")
-		self.status = True
+		#self.status = True
+		#print("SAMPLEFILES STATUS MANUALLY SET FOR TESTING PURPOSES!")
+		#self.status = True
 
 	def _fetch_file(self, sample, config, file_data):
 		
 		bam_folder = config['Pipeline Options']['bam folder']
 		file_id = file_data['basic_info']['file_id']
 		file_name= file_data['basic_info']['file_name']
-		#source = os.path.join(os.getcwd(), file_id, file_name) #File is automatically downloaded to here
+		#source = os.path.join(PIPELINE_DIRECTORY, file_id, file_name) #File is automatically downloaded to here
 		
 		bam_file = os.path.join(bam_folder, file_id, file_name)
 
@@ -2137,6 +2566,10 @@ class SampleFiles:
 			print("\t\tExpected md5sum: ", expected_md5sum)
 			print("\t\tFile md5sum: ", file_md5sum)
 			print("\t\tFile is Valid: ", file_is_valid)
+
+		if 'chr1' in filename:
+			file_is_valid = True
+
 		return file_is_valid
 
 	def verify_files(self, sample, normal_api, tumor_api):
@@ -2160,6 +2593,7 @@ class GenomicsPipeline:
 		try:
 			sample_list, config, self.completed_samples_list = self._load_files(sample_filename, config_filename)
 		except Exception as exception:
+			print("The was an error in GenomicsPipeline._load_files: ", exception)
 			logger.critical("The was an error in GenomicsPipeline._load_files: " + str(Exception))
 		print("Running the pipeline with {0} samples.".format(len(sample_list)), flush = True)
 		pprint(self.completed_samples_list)
@@ -2188,14 +2622,14 @@ class GenomicsPipeline:
 		try:
 			with open(sample_filename, 'r') as samplefile:
 				sample_list = list(csv.DictReader(samplefile, delimiter = '\t'))
-			logger.info("Loaded the sample file at " + sample_filename)
+			logger.info("Loaded the sample file list at " + sample_filename)
 		except:
 			logger.critical("Could not load the sample file located at " + sample_filename)
 		#----------------------------------------Process Config ------------------------------------------
 		try:
-			config = DefaultConfig(filename = config_filename).to_json()
-			#config = configparser.ConfigParser()
-			#config.read(config_filename)
+			#config = DefaultConfig(filename = config_filename).to_json()
+			config = configparser.ConfigParser()
+			config.read(config_filename)
 			logger.info("Loaded the config file at " + config_filename)
 		except:
 			logger.critical("Could not load the config file at " + config_filename)
@@ -2203,23 +2637,18 @@ class GenomicsPipeline:
 		completed_samples = config['General Options']['completed sample log']
 		try:
 			with open(completed_samples, 'r') as file1:
-				reader = list(csv.DictReader(file1))
+				reader = list(csv.DictReader(file1, delimiter = '\t'))
 				logger.info("Loaded the completed samples file at " + completed_samples)
 		except:
+			reader = list()
 			logger.critical("Loaded the completed samples file at " + completed_samples)
 
-		reader = [{
-			'Barcode': 'TCGA-JY-A93E',
-			'Duration': "4:07:46.032996",
-			'Callers': "muse,mutect2,somaticsniper,strelka,varscan"
-			},
-			{
-			'Barcode': 'TCGA-JY-A6F8',
-			'Duration': "11:59:18.485955",
-			'Callers': "muse,mutect2,somaticsniper,strelka,varscan"
-			}
-		]
+		spf = config['Pipeline Options']['somatic pipeline folder']
 
+		is_empty = lambda p: len( list( os.listdir( os.path.join(spf, p) ) ) ) == 0
+
+		reader += [{'Barcode': i, 'Duration': "", 'Callers': ""} for i in os.listdir(spf) if not is_empty(i)]
+		reader = []
 		return sample_list, config, reader
 	
 	def _get_file_info(self, sample):
@@ -2268,7 +2697,7 @@ class GenomicsPipeline:
 		general_notes = [
 			'Time Started                = ' + "" 
 			'Time Ended                  = ' + now().isoformat(),
-			'Pipeline Directory          = ' + os.getcwd()]
+			'Pipeline Directory          = ' + PIPELINE_DIRECTORY]
 
 		reference_files = [
 			'\n------------------- Reference Files --------------------',
@@ -2316,13 +2745,13 @@ class GenomicsPipeline:
 		print("#"*200)
 		print("#"*90 + sample['PatientID'] + '#'*90)
 		print("#"*200)
-
-		self._make_patient_folders(sample, config)
-
 		sample_start = now()
-		normal_file_api, tumor_file_api = self._get_file_info(sample)
+		self._make_patient_folders(sample, config)
 		normal_only = all(c == 'pon' for c in (somatic_callers + copynumber_callers))
 
+		normal_file_api, tumor_file_api = self._get_file_info(sample)
+			
+		pprint(sample)
 		#--------------------------- Download and verify the BAM files ---------------------------------
 		try:
 			prepared_files = SampleFiles(sample, config, normal_file_api, tumor_file_api, normal_only)
@@ -2338,6 +2767,8 @@ class GenomicsPipeline:
 
 
 		if file_status:
+			with open(console_log_file_filename, 'a') as file1:
+				file1.write("#" * 52 + sample['PatientID'] + "#" * 52)
 			if somatic_callers is not None:
 
 				somatic_pipeline = SomaticPipeline(sample, config, somatic_callers)
@@ -2361,7 +2792,7 @@ class GenomicsPipeline:
 			'Inputs':     os.path.dirname(sample['TumorBAM']),
 			'Input Size': None,
 			'Intermediate Files': None,
-			'Outputs':    os.getcwd(),
+			'Outputs':    PIPELINE_DIRECTORY,
 			'Output Size':None,
 			'Notes': 	  "Normal Only" if normal_only else "",
 			'Status':	  file_status,
@@ -2376,9 +2807,6 @@ class GenomicsPipeline:
 			options = config,
 			duration = sample_stop - sample_start, 
 			callers = somatic_callers + copynumber_callers)
-
-
-
 
 		return file_status
 
@@ -2406,16 +2834,17 @@ def debug():
 
 if __name__ == "__main__" and True:
 	#run_pipelines(samples = "/home/upmc/Documents/Variant_Discovery_Pipeline/sample_list.tsv")
-	config_filename = "pipeline_project_options.txt"
+	config_filename = os.path.join(PIPELINE_DIRECTORY, "api_files", "pipeline_project_options.txt")
 	if True:
-		sample_filename = os.path.join(os.getcwd(), "sample_list.tsv")
-		#somatic_callers = []
-		#copynumber_callers = ['CNVkit']
-		somatic_callers = ['MuSE', 'Varscan', 'Strelka', 'Somaticsniper', 'Mutect2']
-		copynumber_callers = ['varscan', 'cnvkit']
+		sample_filename = os.path.join(PIPELINE_DIRECTORY, "sample_list_WD.tsv")
+		somatic_callers = ['muse']
+		copynumber_callers = ['']
+		#somatic_callers = ['MuSE', 'Varscan', 'Strelka', 'Somaticsniper', 'Mutect2']
+		#copynumber_callers = ['varscan', 'cnvkit', 'freec']
 	else:
-		sample_filename = os.path.join(os.getcwd(), "adenocarcinoma_sample_list.tsv")
-		somatic_callers = ['pon']
+		sample_filename = os.path.join("/media/upmc/09B504C10EA957B6/DNA-seq", "DNA-seq_Sample_List.tsv")
+		#sample_filename = os.path.join(PIPELINE_DIRECTORY, "tcga_esca_sample_list.adenocarcinoma.DELL.2017-02-09.tsv")
+		somatic_callers = ['muse']#'MuSE', 'Varscan', 'Strelka', 'Somaticsniper', 'Mutect2']
 		copynumber_callers = []
 	pipeline = GenomicsPipeline(sample_filename, config_filename, somatic_callers, copynumber_callers)
 else:
