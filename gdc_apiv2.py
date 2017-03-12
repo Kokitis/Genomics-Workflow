@@ -20,10 +20,10 @@ if os.name == 'nt': #Windows
 	gdc_program  = os.path.join(gdc_location, 'gdc-client.exe')
 	histology_filename = "C:\\Users\\Deitrickc\\Documents\\UPMC Files\\Projects\\Genome Instability Project\\Clinical Data\\histology_diagnoses.txt"
 else:
-	histology_filename = "/home/upmc/Documents/Variant_Discovery_Pipeline/api_files/histology_diagnoses.txt"
+	histology_filename = os.path.join("/home/upmc/Documents/Variant_Discovery_Pipeline/", "0_config_files", "histology_diagnosis.txt")
 	gdc_location = "/home/upmc/Programs/gdc_data_transfer_tool"
-	local_file_api_filename = os.path.join("/home/upmc/Documents/Variant_Discovery_Pipeline/", "api_files", "local_file_api.json") #Path to a local copy of the file api
-	local_case_api_filename = os.path.join("/home/upmc/Documents/Variant_Discovery_Pipeline/", "api_files", "local_case_api.json") #Path to a local copy of the case api
+	local_file_api_filename = os.path.join("/home/upmc/Documents/Variant_Discovery_Pipeline/", "0_config_files", "local_file_api.json") #Path to a local copy of the file api
+	local_case_api_filename = os.path.join("/home/upmc/Documents/Variant_Discovery_Pipeline/", "0_config_files", "local_case_api.json") #Path to a local copy of the case api
 	gdc_program  = os.path.join(gdc_location, 'gdc-client-2016-10-19')
 #user_token = os.path.join(gdc_location, 'tokens', max(list(os.listdir(os.path.join(gdc_location, "tokens")))))
 def load_csv(filename):
@@ -56,7 +56,7 @@ class GDCAPI:
 	def __init__(self):
 
 		
-		self.histology_filename = os.path.join(os.getcwd(), "api_files", "histology_diagnoses.txt")
+		self.histology_filename = histology_filename
 
 		self.full_manifest = self._load_file_locations()
 		self.histology = self._load_histology()
@@ -567,56 +567,19 @@ def case_api (case_id):
 
 
 #Updated Version
-if __name__ == "__main__" and False:
+if __name__ == "__main__" and True:
 	case_id  = "6969fe5a-5993-48e5-95c5-c5c7d3d08205"
 	#file_id  = "2d4f1ce4-4613-403a-90ec-fd6a551b6487"
-	file_id  = "0496553c-c68b-42a5-8a54-29f20b8f7c44"
+	file_id  = "9e692097-1f84-4a25-ad73-50a5522db60e"
 	index_id = "4570dd4d-9234-4d37-b8d0-66d37594e3f1"
 	stomach_case_id = "00781a96-4068-427c-a9c5-584d167c3dea"
 
 	api = GDCAPI()
-	response = api(case_id, 'cases')
+	response = api(file_id, 'files')
 	pprint(response)
 	#pprint(case_api(case_id))
 	#pprint(case_api(case_id))
-elif False:
-	api = GDCAPI()
-	import pandas
-	data = pandas.read_excel("C:\\Users\\Deitrickc\\Documents\\UPMC Files\\Projects\\Genome Instability Project\\Clinical Data\\nationwidechildrens.org_clinical_patient_esca.xlsx")
-	all_esca_case_ids = sorted(i.lower() for i in data['bcr_patient_uuid'].values if '-' in i)
 
-	data = pandas.read_excel("C:\\Users\\Deitrickc\\Documents\\UPMC Files\\Projects\\Genome Instability Project\\Clinical Data\\20140110_STAD_Clinical_Data_Blacklisted_Cases_Removed.xlsx", skiprows = 1)
-	all_stad_case_ids = sorted(i.lower() for i in data['bcr_patient_uuid'].values if '-' in i)
-
-
-	#filename = "G:\\Pipeline Files\\Combined Pipeline\\Full_ESCA_sample_list.tsv"
-	filename = "C:\\Users\\Deitrickc\\Documents\\UPMC Files\\Projects\\Genome Instability Project\\Data\\Sample Lists\\Full_ESCA_sample_list.tsv"
-	#filename = None
-	api.generate_local_api(all_esca_case_ids + all_stad_case_ids)
-	#filename = "G:\\Pipeline Files\\Combined Pipeline\\Full_STAD_sample_list.tsv"
-	filename = "C:\\Users\\Deitrickc\\Documents\\UPMC Files\\Projects\\Genome Instability Project\\Data\\Sample Lists\\Full_STAD_sample_list.tsv"
-	#api.generate_sample_list(all_stad_case_ids, filename = filename)
-elif False:
-	all_ids = """012e99fe-e3e8-4bb0-bb74-5b0c9992187c
-				44799c67-61cd-4f3e-bdbc-423e2e0fd2e8
-				8d3e3d09-bc61-4d5e-b8d6-5aee6cb488ae
-				9b5e5122-8ea0-432c-bc64-932bf376fffd
-				40e507fb-e285-424b-a98b-362e47a53e4a
-				82f9a197-040d-4c5e-89d9-d87a7aa0168d
-				45aacbb4-0fd8-431c-a57b-279ea57a19fc
-				5956529e-f359-47c9-8222-0bd7f68c1e65
-				1a4313e7-a770-4a0e-93f1-c10562f521e3
-				0AE2B51D-AADE-4D24-8D0B-6990123D9074
-				5d33895e-a959-4d5e-8850-c49c7fa49a22
-				647dc54f-a51b-40ea-9d97-c93598c2af71
-				87c217d4-66f4-46ca-8244-7856ce658fd3
-				8f9be4e3-a1e5-4fa3-8d31-a53de781ed97
-				ba3911e6-2208-4a04-8891-b5cba9fda6bf
-				d5550422-dc4b-4ebf-acb5-aa5243fff49f
-				faf5f1e3-9f7d-4a9d-a005-6cad5e4becf7"""
-	all_ids = [i.strip() for i in all_ids.splitlines()]
-	response = _api.generate_manifest_file(all_ids, 'cases', filename = os.path.join(os.getcwd(), "tcga_stad.gej.manifest.tsv"))
-	pprint(response)
 
 
 print("Finished!")
