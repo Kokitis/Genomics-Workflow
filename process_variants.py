@@ -14,6 +14,7 @@ from pprint import pprint
 	3. Convert VCFs to MAF
 	4. Combine Patient MAFs
 """
+PIPELINE_FOLDER = "/home/upmc/Documents/Genomics_Analysis"
 def Terminal(command, show_output = True):
 	os.system(command)
 
@@ -649,7 +650,39 @@ class HarmonizeVCFs:
 		return df
 
 class Truthset:
-	def __init__(self, sample, options, training_type, **kwargs):
+	def __init__(self, samples, options, training_type, **kwargs):
+		""" Generates a truthset based on one or more samples.
+			Option 1: intersection of all 5 callers.
+			Option 2: Dream-SEQ data
+			Option 3: RNA-seq?
+			Parameters
+			----------
+				sample: dict<>
+				options: dict<>
+				variants: dict<caller, filename>
+				training_type: {'intersection'}
+
+				**kwargs:
+					* 'n': int; default 5
+						number of callers to pass validation when 'training_type' is 'intersection'
+		"""
+		self.training_type = training_type
+		outputs = list()
+		for sample in samples:
+			sample_truthset = self._per_sample(sample, options, training_type)
+			outputs.append(sample_truthset)
+
+		if len(outputs) == 1:
+			sample_truthset = outputs[0]
+		else:
+			sample_truthset = self._combine_truthsets(outputs)
+		self.truthset = sample_truthset['truthset']
+		self.filename = sample_truthset['filename']
+		self.indel_filename = sample_truthset['filename-indel']
+		self.snv_filename = sample_truthset['filename-snv']
+
+
+	def __init__OBS(self, sample, options, training_type, **kwargs):
 		""" Generates a truthset based on the passed variants/
 			Option 1: intersection of all 5 callers.
 			Option 2: Dream-SEQ data
@@ -669,6 +702,7 @@ class Truthset:
 		
 		#Define the output file
 		print("Truthset(training_type = {0})".format(training_type))
+		self.training_type = training_type
 		input_vcf, output_vcf, self.snv_filename, self.indel_filename = self._get_vcf_files(
 			sample, options, training_type)
 		self.filename = output_vcf
@@ -679,6 +713,7 @@ class Truthset:
 			self.truthset = vcf.Reader(open(output_vcf, 'r'))
 
 		self._split_vcf()
+	
 	def __call__(self, sample, chrom, pos):
 		"""
 			Parameters
@@ -699,11 +734,33 @@ class Truthset:
 
 		return response
 
-	def _split_vcf(self):
+	def _per_sample(sample, options, training_type):
+		""" Generates individual truthsets per sample."""
+		input_vcf, output_vcf, snv_filename, indel_filename = self._get_vcf_files(
+			sample, options, training_type)
+		#self.filename = output_vcf
+		#Select truthset source
+		if not os.path.exists(output_vcf):
+			truthset = self._generate_truthset(input_vcf, output_vcf, training_type)
+		else:
+			truthset = vcf.Reader(open(output_vcf, 'r'))
+
+		self._split_vcf(output_vcf, snv_filename, indel_filename)
+
+		result = {
+			'PatientID': sample['PatientID'],
+			'truthset': truthset,
+			'filename': output_vcf,
+			'filename-indel': indel_filename,
+			'filename-snv': snv_filename
+		}
+		return result
+
+	def _split_vcf(self, filename, snv_filename, indel_filename):
 		""" Splits the full vcf file into snvs and indels """
-		reader = vcf.Reader(open(self.filename, 'r'))
-		snv_writer = vcf.Writer(open(self.snv_filename, 'w'), reader)
-		indel_writer = vcf.Writer(open(self.indel_filename, 'w'), reader)
+		reader = vcf.Reader(open(filename, 'r'))
+		snv_writer = vcf.Writer(open(snv_filename, 'w'), reader)
+		indel_writer = vcf.Writer(open(indel_filename, 'w'), reader)
 
 		for record in reader:
 			if record.is_snp:
@@ -859,6 +916,72 @@ class Truthset:
 			recordStatus = self._from_VAF(record)
 
 		return recordStatus
+
+	def _combine_truthsets(self, samples, options):
+		""" Combines the truthsets of several samples into a single file.
+			Parameters
+			----------
+				samples: list<dict<>>
+					A list of outputs from self._per_sample()
+						* 'truthset'
+						* 'filename'
+						* 'filename-indel'
+						* 'filename-snv'
+		"""
+		gatk_location = options['Programs']['GATK']
+		reference = options['Reference Files']['reference genome']
+
+		_folderName = lambda s: os.path.join(options['Pipeline Options']['processed vcf folder'], 'truthset', s)
+		sampleIds = sorted(i['PatientID'] for i in samples)
+		sampleIds = ",".join(sampleIds)
+		filename = _folderName("{0}.{1}.merged_truthset.vcf".format(sampleIds, self.training_type))
+		indel_filename = _folderName("{0}.{1}.indel.merged_truthset.vcf".format(sampleIds, self.training_type))
+		snv_filename = _folderName("{0}.{1}.snv.merged_truthset.vcf".format(sampleIDs, self.training_type))
+
+		variants       = "--variant " + " --variant ".join([i['filename'] for i in samples])
+		snv_variants   = "--variant " + " --variant ".join(i['filename-snv'] for i in samples)
+		indel_variants = "--variant " + " --variant ".join([i['filename-indel'] for i in samples])
+
+		command = """ java -jar {GATK} \
+					   -T CombineVariants \
+					   -R {reference} \
+					   {variants} \
+					   -o {output} \
+					   -genotypeMergeOptions UNIQUIFY""".format(
+					   	GATK = gatk_location,
+					   	reference = reference,
+					   	variants = variants,
+					   	output = filename)
+		snv_command = """ java -jar {GATK} \
+					   -T CombineVariants \
+					   -R {reference} \
+					   {variants} \
+					   -o {output} \
+					   -genotypeMergeOptions UNIQUIFY""".format(
+					   	GATK = gatk_location,
+					   	reference = reference,
+					   	variants = snv_variants,
+					   	output = snv_filename)
+		indel_command = """ java -jar {GATK} \
+					   -T CombineVariants \
+					   -R {reference} \
+					   {variants} \
+					   -o {output} \
+					   -genotypeMergeOptions UNIQUIFY""".format(
+					   	GATK = gatk_location,
+					   	reference = reference,
+					   	variants = indel_variants,
+					   	output = indel_filename)
+		truthset = vcf.Reader(open(filename, 'r'))
+		result = {
+			'PatientID': sampleIds,
+			'truthset': truthset,
+			'filename': filename,
+			'filename-indel': indel_filename,
+			'filename-snv': snv_filename
+		}
+
+		return result
 
 
 	def _generate_truthsetOBS(self, sample, options, training_type):
@@ -1221,14 +1344,24 @@ class toMAF:
 		"""
 		return row
 
-def ProcessVariants(sample_list, options, truthset):
+def SomaticSeq(sample_list, options, training_type):
 	"""
 		1. toMAF
 		2. Combine Mafs per patient and assign scores.
 		4. Combine All Mafs
 	"""
-	all_variants = GetVariantList(sample, options)
+	training_samples = {'TCGA-2H-A9GF', 'TCGA-2H-A9GO'}
+	training_sample_list = [i for i in sample_list if i['PatientID'] in training_samples]
+	prediction_sample_list = [i for i in sample_list if i['PatientID'] not in training_samples]
+	#all_variants = GetVariantList(sample, options)
 	#pprint(all_variants)
+
+	truthsets = list()
+	for training_case in training_samples:
+		_subset_truthset = Truthset(training_case, options, training_type = training_type)
+		truthsets.append(_subset_truthset)
+	#Combine the truthsets
+
 
 	SomaticSeqTraining(all_variants, options, truthset)
 	SomaticSeqPredictor()
@@ -1243,7 +1376,7 @@ def SomaticSeqTraining(sample_variants, options, truthset):
 	"""
 	variants = sample_variants
 	output_folder = os.path.join(
-		'/home/upmc/Documents/Genomic_Analysis/somaticseq', 'training')
+		Pipeline_Folder, 'somaticseq', 'training-' + truthset.training_type)
 	checkdir(output_folder)
 
 	somaticseq_location = os.path.join(
@@ -1307,7 +1440,7 @@ def SomaticSeqTraining(sample_variants, options, truthset):
 			output_folder = output_folder)
 	Terminal(command)
 
-def SomaticSeqPredictor(variants, options):
+def SomaticSeqPredictor(sample_list, options):
 	somaticseq_output_folder = "/home/upmc/Documents/Genomic_Analysis/somaticseq"
 	prediction_output_folder = os.path.join(somaticseq_output_folder, 'prediction')
 	training_output_folder = os.path.join(somaticseq_output_folder, 'training')
