@@ -1,8 +1,26 @@
 import os
 import collections
+import sys
+import configparser
+print(sys.version)
+sys.path.append(os.path.join(os.path.dirname(os.path.realpath(__file__)), '0_pipeline_files'))
 import vcf
 import csv
 from pprint import pprint
+
+"""
+	1. Harmonize VCF fields
+	2. Merge caller VCFs
+	3. Convert VCFs to MAF
+	4. Combine Patient MAFs
+"""
+def Terminal(command, show_output = True):
+	os.system(command)
+
+def checkdir(path):
+	if not os.path.isdir(path):
+		os.mkdir(path)
+
 
 def generateVennDiagram(filename = None, script_file = None, plot_file = None):
 	"""
@@ -122,36 +140,57 @@ def generateVennDiagram(filename = None, script_file = None, plot_file = None):
 
 
 class HarmonizeVCFs:
-	def __init__(self, variants, output_folder, options, tag = None,):
+	def __init__(self, variants, sample, options, truthset, **kwargs):
 		"""
 			Parameters
 			----------
 				variants: dict<>
 					A dictionary mapping a caller to its output file.
-		Output
-		------
-			output_folder/harmonized_vcfs/
-				Each vcf file will be modified to include any field present in at least one of the raw vcf files.
-				These new fields will be empty if no equivilent value is available in the raw vcf file.
-			output_folder/merged_vcfs/
-				This will contain the output of GATK CombineVariants. Callers are saved in the 
+				options: dict<>
+
+
+			Output
+			------
+				output_folder/harmonized_vcfs/
+					Each vcf file will be modified to include any field present in at least one of the raw vcf files.
+					These new fields will be empty if no equivilent value is available in the raw vcf file.
+				output_folder/merged_vcfs/
+					This will contain the output of GATK CombineVariants. Callers are saved in the 
 			
 		"""
-		if tag: self.tag = '.' + tag
-		else: self.tag = ""
+		training_type = 'RNA-seq'
 		self.callers = None #_getMergedRecord has hardcoded values
 		self._define_caller_formats()
 		
+		output_folder = options['Pipeline Options']['processed vcf folder']
 		harmonized_folder = os.path.join(output_folder, "harmonized_vcfs")
 		merged_folder = os.path.join(output_folder, "merged_vcfs")
+		validation_folder = os.path.join(output_folder, "validated_variants")
+		
+		checkdir(harmonized_folder)
+		checkdir(merged_folder)
+		checkdir(validation_folder)
+		
 		print("Output Folder: ", output_folder)
-		print("Harmonizing the vcfs...")
-		variants = self._harmonizeVCFs(variants, output_folder = harmonized_folder)
-		print("Merging vcfs...")
-		merged_vcf = self.merge_vcfs(variants, output_folder = merged_folder) #GATK
-		merged_vcf = self.validate_variants(merged_vcf)
+		print("Harmonizing the vcfs...", flush = True)
+		variants = self._harmonizeVCFs(sample, variants, output_folder = harmonized_folder)
+		
+		print("Merging vcfs...", flush = True)
+		self.merged_variants = self.merge_vcfs(sample, options, variants, output_folder = merged_folder) #GATK
+		
+		print("Generating truthset...", flush = True)
+		#Truthset is represented as a dict<"chr:{0}|pos:{1} -> validation_status>"
+		#truthset = Truthset(sample, options, self.merged_variants, training_type = training_type, **kwargs).truthsetdict
+		self.variant_validation_status = collections.defaultdict(int)#truthset#self._get_truthset(truthset)
+
+		print("Validating Variants...", flush = True)
+		merged_vcf = self.validate_variants(sample, self.merged_variants, validation_folder)
+		
 		print("Formatting as a table...")
-		merged_table = self.toTable(merged_vcf)
+		merged_table = self.toTable(merged_vcf, validation_folder)
+
+		_stats_filename = os.path.join(output_folder, "{0}.callset_validation_status.txt".format(training_type))
+		self._count_validated_variants(merged_table, filename = _stats_filename)
 	#----------------------------------- Basic ----------------------------------------
 	def _define_caller_formats(self):
 		muse_format = ["GT", "DP", "AD", "BQ", "SS", 'READS', 'VAF']
@@ -192,7 +231,7 @@ class HarmonizeVCFs:
 			Returns
 			-------
 				result: dict<>
-					* 'alleles': THe number of alternate alleles.
+					* 'alleles': The number of alternate alleles.
 					* 'reads': The number of reads used to calculate the vaf.
 					* 'vaf': The variant allele frequency.
 		"""
@@ -225,6 +264,8 @@ class HarmonizeVCFs:
 			sample_reads = sample['DP']
 			sample_alleles = sample['AD']
 			sample_vaf = float(sample['FREQ'].strip('%')) / 100
+		else:
+			print("WARNING (getSampleVAF): {0} is not a caller!".format(caller))
 
 		result = {
 			'ALLELES': sample_alleles,
@@ -241,7 +282,6 @@ class HarmonizeVCFs:
 			sample_data = dict(list(sample_data.items()) + list(sample_vaf.items()))
 			s.data = self._get_merged_data(sample_data)
 			new_samples.append(s)
-
 
 		new_record = vcf.model._Record(
 			CHROM = record.CHROM,
@@ -284,7 +324,7 @@ class HarmonizeVCFs:
 		}
 		return headers
 	
-	def _harmonizeVCFs(self, sample, options, variants, output_folder):
+	def _harmonizeVCFs(self, sample, variants, output_folder):
 		""" Harmonizes all vcf for a given patient.
 			Returns
 			-------
@@ -292,11 +332,12 @@ class HarmonizeVCFs:
 					A dictionary pointing to the harmonized vcf for each caller.
 		"""
 		for caller, filename in variants.items():
-			hfile = self._harmonizeVCF(sample, options, filename, output_folder, caller)
+			hfile = self._harmonizeVCF(sample, caller, filename, output_folder)
+			#hfile = filename
 			variants[caller] = hfile
 		return variants
 	
-	def _harmonizeVCF(self, filename, output_folder, caller = None):
+	def _harmonizeVCF(self, sample, caller, filename, output_folder):
 		""" Harmonizes the output VCFs from each caller.
 			Parameters
 			----------
@@ -325,7 +366,7 @@ class HarmonizeVCFs:
 		else: caller = 'varscan'
 
 		source_folder, basename = os.path.split(filename)
-		output_filename = "{normal}_vs_{tumor}.{caller}.harmonized.vcf".format(sample['NormalID'], sample['SampleID'], caller)
+		output_filename = "{0}_vs_{1}.{2}.harmonized.vcf".format(sample['NormalID'], sample['SampleID'], caller)
 		output_filename = os.path.join(output_folder, output_filename)
 
 		with open(filename, 'r') as input_file:
@@ -360,7 +401,7 @@ class HarmonizeVCFs:
 
 		return filter_out
 
-	def _getValidationStatus(self, record, caller = None):
+	def _getValidationStatus(self, record, caller = None, validation_type = 'Intersection'):
 		"""
 			Should use better Criteria.
 			
@@ -371,31 +412,37 @@ class HarmonizeVCFs:
 
 		normal = [i for i in record.samples if i.sample == 'NORMAL'][0]
 		tumor  = [i for i in record.samples if i.sample == 'TUMOR'][0]
-		tumor_vaf = tumor.data.VAF
-		normal_vaf= normal.data.VAF
+		if validation_type == 'VAF':
+			tumor_vaf = tumor.data.VAF
+			normal_vaf= normal.data.VAF
 
-		#Filter out variants that were rejected by a caller
-		#This is only needed for variants in the callsets of a single caller
-		filter_out = self._filterOut(record, caller)
-		
-		#Validate variants according to VAF status.
-		#This is only for testing purposes, a better version should be used later.
-		_somatic_vaf = (tumor_vaf >= 0.08 and normal_vaf < 0.03) or (tumor_vaf < 0.08 and normal_vaf == 0.0)
-		if _somatic_vaf and not filter_out:
-			validation = 'Somatic'
-		elif (tumor_vaf < 0.08 and (normal_vaf > 0.0 and normal_vaf < 0.03)) or filter_out:
-			validation = 'Unknown'
-		else: validation = 'Non-Somatic'
+			#Filter out variants that were rejected by a caller
+			#This is only needed for variants in the callsets of a single caller
+			filter_out = self._filterOut(record, caller)
 			
+			#Validate variants according to VAF status.
+			#This is only for testing purposes, a better version should be used later.
+			_somatic_vaf = (tumor_vaf >= 0.08 and normal_vaf < 0.03) or (tumor_vaf < 0.08 and normal_vaf == 0.0)
+			if _somatic_vaf and not filter_out:
+				validation = 'Somatic'
+			elif (tumor_vaf < 0.08 and (normal_vaf > 0.0 and normal_vaf < 0.03)) or filter_out:
+				validation = 'Unknown'
+			else: validation = 'Non-Somatic'
+		elif validation_type == 'Intersection':
+			callset = record.INFO
+			num_callers = len(callset['set'].split('_'))
+			if num_callers >= 4:
+				validation = 'Somatic'
+			else:
+				validation = 'Non-Somatic'
+			#print(num_callers, callset['set'])
+				
 		if validation == 'Non-Somatic': validation = 0
 		elif validation == 'Somatic': validation = 1
 		else: validation = 2
 		
-		#Apply any additional filtering techniques.
-		#if validation != 0:
-		#    validation = int(len(record.INFO['set'].split('_')) == 5)
-
-		#print(validation, normal_vaf, tumor_vaf, filter_out)
+		position = "{0}:{1}".format(record.CHROM, record.POS)
+		validation = self.variant_validation_status.get(position, 0)
 
 		return validation
 	
@@ -425,12 +472,15 @@ class HarmonizeVCFs:
 		if not os.path.isfile(reference):
 			print("ERROR: Could not locate reference at ", reference)
 
-		output_file = "{normal}_vs_{tumor}.merged.vcf".format(sample['NormalID'], sample['SampleID'])
+		output_file = "{0}_vs_{1}.merged.vcf".format(sample['NormalID'], sample['SampleID'])
 		output_file = os.path.join(output_folder, output_file)
 		
 		order = "mutect,varscan,strelka,muse,somaticsniper" #ordered by VAF confidence
 		order = ",".join([i for i in order.split(',') if i in variants])
-
+		
+		template = "--variant:{0} {1}"
+		templates = ' \\\n'.join([template.format(c, f) for c, f in variants.items()])
+		
 		command = """java -jar "{gatk}" \
 			-T CombineVariants \
 			-R "{reference}" \
@@ -459,7 +509,7 @@ class HarmonizeVCFs:
 			os.system(command)
 		return output_file
 		
-	def _getMergedRecord(self, record):
+	def _getValidatedRecord(self, record):
 		#Modify the INFO field to add the validation status and format the 'sets' field
 		#infotuple = collections.namedtuple('INFO', sorted(record.INFO) + ['VS'])
 		
@@ -489,10 +539,20 @@ class HarmonizeVCFs:
 		
 		return new_record
 	 
-	def validate_variants(self, merged_vcf):
-		source_folder, basename = os.path.split(merged_vcf)
-		basename = basename.split('.')[0] + self.tag + '.validated.vcf'
-		output_filename = os.path.join(source_folder, basename)
+	def validate_variants(self, sample, merged_vcf, output_folder):
+		""" Adds a field to the merged vcf file indicating whether a given mutation is present in the truth set.
+
+			Returns
+			-------
+				output_filename: string [PATH]
+				Format: {normalID}_vs_{tumorID}.merged.validated.vcf
+		"""
+		output_filename = "{0}_vs_{1}.merged.validated.vcf".format(sample['NormalID'], sample['SampleID'])
+		output_filename = os.path.join(output_folder, output_filename)
+		#source_folder, basename = os.path.split(merged_vcf)
+		#basename = basename.split('.')[0] + self.tag + '.validated.vcf'
+		#output_filename = os.path.join(source_folder, basename)
+		
 		with open(merged_vcf, 'r') as file1:
 			vcf_reader = vcf.Reader(file1)
 			with open(output_filename, "w") as output:
@@ -500,11 +560,12 @@ class HarmonizeVCFs:
 				
 				for record in vcf_reader:
 					#validation_status = self._getValidationStatus(record)
-					new_record = self._getMergedRecord(record)
+					new_record = self._getValidatedRecord(record)
 					vcf_writer.write_record(new_record)
 		return output_filename
 			
-	def toTable(self, merged_vcf):
+	def toTable(self, merged_vcf, output_folder):
+		print("Merged VCF FIlename: ", merged_vcf)
 		table = list()
 		stats = collections.defaultdict(list)
 		with open(merged_vcf, 'r') as file1:
@@ -533,21 +594,38 @@ class HarmonizeVCFs:
 				table.append(row)
 		print("Validation per set:")
 
-		for key, series in sorted(stats.items()):
+		#for key, series in sorted(stats.items()):
 			
-			_total_validated = series.count(1)
-			_total_detected = len(series)
-			_ratio = _total_validated / _total_detected
-			print("{0:<45}\t{1}\t{2:.1%}".format(key, _total_detected, _ratio))
-				
-		table_filename = merged_vcf + '.table'
+		#	_total_validated = series.count(1)
+		#	_total_detected = len(series)
+		#	_ratio = _total_validated / _total_detected
+		#	print("{0:<45}\t{1}\t{2:.1%}".format(key, _total_detected, _ratio))
+
+		basename = os.path.splitext(os.path.basename(merged_vcf))[0] + '.table.tsv'
+		table_filename = os.path.join(output_folder, basename)
 		header = sorted(table[0].keys())
 		with open(table_filename, 'w') as outputfile:
 			writer = csv.DictWriter(outputfile, delimiter = '\t', fieldnames = header)
 			writer.writeheader()
 			writer.writerows(table)
-		return table_filename
-				
+		return stats
+	@staticmethod
+	def _count_validated_variants(stats, filename):
+		"""
+			Parameters
+			----------
+				stats: dict<list<>>
+					A dictionary mapping callset names to a list of callset varaints validation data.
+					Ex. MuSE: [0,1,1,1,0,0,0,0,1,00,1,0,1]
+		"""
+
+		with open(filename, 'w') as file1:
+			file1.write("Callset\ttotal calls\ttotal validated\tpercent validated\n")
+			for key, series in stats.items():
+				_total_validated = series.count(1)
+				_total_detected = len(series)
+				_ratio = _total_validated / _total_detected
+				file1.write("{0:<45}\t{1}\t{2}\t{3:.1%}\n".format(key, _total_detected, _total_validated, _ratio))
 	def expandTable(table_file, callers, caller_sets):
 		""" Adds and initializes columns to a dataframe based on the passed variable list.
 		Parameters
@@ -570,9 +648,343 @@ class HarmonizeVCFs:
 
 		return df
 
-def GetVariantList(sample, options):
+class Truthset:
+	def __init__(self, sample, options, training_type, **kwargs):
+		""" Generates a truthset based on the passed variants/
+			Option 1: intersection of all 5 callers.
+			Option 2: Dream-SEQ data
+			Option 3: RNA-seq?
+			Parameters
+			----------
+				sample: dict<>
+				options: dict<>
+				variants: dict<caller, filename>
+				training_type: {'intersection'}
 
-	vcf_folder = os.path.join(options['Pipeline Options'], sample['PatientID'])
+				**kwargs:
+					* 'n': int; default 5
+						number of callers to pass validation when 'training_type' is 'intersection'
+		"""
+		#Filename format: TCGA-2H-A9GF-11A_vs_TCGA-2H-A9GF-01A.truthset.RNA-seq.txt
+		
+		#Define the output file
+		print("Truthset(training_type = {0})".format(training_type))
+		input_vcf, output_vcf, self.snv_filename, self.indel_filename = self._get_vcf_files(
+			sample, options, training_type)
+		self.filename = output_vcf
+		#Select truthset source
+		if not os.path.exists(output_vcf):
+			self.truthset = self._generate_truthset(input_vcf, output_vcf, training_type)
+		else:
+			self.truthset = vcf.Reader(open(output_vcf, 'r'))
+
+		self._split_vcf()
+	def __call__(self, sample, chrom, pos):
+		"""
+			Parameters
+			----------
+				sample: tumor barcode
+				chrom: int
+				pos: int
+		"""
+		if self.isTable:
+			rows = self.truthset.extract()
+		else:
+			rows = [i for i in self.truthset if i['sample'] == sample and i['chrom'] == chrom and i['position'] == pos]
+
+			response = {row['validation method']: row['validation status'] for row in rows}
+		
+		for i in ['RNA-seq', 'Intersection', 'VAF']:
+			if i not in response.keys(): response[i] = 0
+
+		return response
+
+	def _split_vcf(self):
+		""" Splits the full vcf file into snvs and indels """
+		reader = vcf.Reader(open(self.filename, 'r'))
+		snv_writer = vcf.Writer(open(self.snv_filename, 'w'), reader)
+		indel_writer = vcf.Writer(open(self.indel_filename, 'w'), reader)
+
+		for record in reader:
+			if record.is_snp:
+				snv_writer.write_record(record)
+			elif record.is_indel:
+				indel_writer.write_record(record)
+
+	@staticmethod
+	def _get_vcf_files(sample, options, training_type):
+		output_vcf = os.path.join(
+			options['Pipeline Options']['processed vcf folder'],
+			"truthset",
+			"{0}_vs_{1}.{2}.truthset.tsv".format(sample['NormalID'], sample['SampleID'], training_type))
+
+		snv_vcf = os.path.join(
+			options['Pipeline Options']['processed vcf folder'],
+			"truthset",
+			"{0}_vs_{1}.{2}.snv.truthset.tsv".format(sample['NormalID'], sample['SampleID'], training_type))
+		
+		indel_vcf = os.path.join(
+			options['Pipeline Options']['processed vcf folder'],
+			"truthset",
+			"{0}_vs_{1}.{2}.indel.truthset.tsv".format(sample['NormalID'], sample['SampleID'], training_type))
+		
+		checkdir(os.path.dirname(output_vcf))
+		
+		if training_type in {'Intersection', 'VAF'}:
+			#Both types require the output from GATK Combine Variants.
+			input_vcf = os.path.join(
+				options['Pipeline Options']['processed vcf folder'], 
+				"merged_vcfs", 
+				"{0}_vs_{1}.merged.vcf".format(sample['NormalID'], sample['SampleID']))
+		elif training_type == 'RNA-seq':
+			input_vcf = os.path.join(
+				options['Pipeline Options']['somatic pipeline folder'],
+				sample['PatientID'],
+				'HaplotypeCaller', 'RNA-seq',
+				'TCGA-2H-A9GF-01A.RNA.raw_snps_indels.vcf')
+
+		return input_vcf, output_vcf, snv_vcf, indel_vcf
+	@staticmethod
+	def _getSampleVAF(record, caller = None):
+		""" Use DP4 instead of DP
+			Parameters
+			----------
+				record: from pyVCF reader
+			Returns
+			-------
+				result: dict<>
+				* {NORMAL, SAMPLE}:
+					* 'alleles': THe number of alternate alleles.
+					* 'reads': The number of reads used to calculate the vaf.
+					* 'vaf': The variant allele frequency.
+		"""
+		response = dict()
+		#record = record.samples
+		for sample in record.samples:
+			sample_fields = sample.data._asdict()
+			if caller is None:
+				if 'DP4' in sample_fields: 			caller = 'somaticsniper'
+				elif 'ALT_F1R2' in sample_fields: 	caller = 'mutect'
+				elif 'FREQ' in sample_fields: 		caller = 'varscan'
+				elif 'DP' in sample_fields: 		caller = 'muse'
+				else: 								caller = 'strelka'
+			else:
+				caller = caller.lower()
+			#print(caller)
+			#pprint(sample_fields)
+			if caller == 'somaticsniper':
+				
+				sample_reads = sum(sample_fields['DP4'])
+				sample_alleles = sum(sample_fields['DP4'][2:])
+				sample_vaf = sample_alleles / sample_reads
+
+			elif caller == 'mutect':
+				#print(sample)
+				sample_reads = sample_fields['ALT_F1R2'] + sample_fields['ALT_F2R1'] + sample_fields['REF_F1R2'] + sample_fields['REF_F2R1']
+				sample_alleles = sample_fields['ALT_F1R2'] + sample_fields['ALT_F2R1']
+				sample_vaf = sample_fields['AF']
+
+			elif caller == 'muse':
+				sample_reads = sample_fields['DP']
+				sample_alleles = sample_fields['AD'][1]
+				sample_vaf = sample_alleles / sample_reads
+
+			elif caller == 'strelka':
+				sample_ref = record.REF
+				alleles = [i for i in ['A', 'C', 'G', 'T'] if i != sample_ref]
+				sample_reads = sum([sample_fields[i+'U'][1] for i in (alleles + [sample_ref])])
+				sample_alleles = sum([sample_fields[i+'U'][1] for i in alleles])
+				if sample_reads == 0: sample_vaf = 0
+				else:
+					sample_vaf = sample_alleles / sample_reads
+
+			elif caller == 'varscan':
+				sample_reads = sample_fields['DP']
+				sample_alleles = sample_fields['AD']
+				sample_vaf = float(sample_fields['FREQ'].strip('%')) / 100
+			else:
+				print("WARNING (getSampleVAF): {0} is not a caller!".format(caller))
+
+			result = {
+				'reads': sample_reads,
+				'alleles': sample_alleles,
+				'vaf': sample_vaf
+			}
+			response[sample.sample] = result
+
+		return response
+
+	def _generate_truthset(self, input_vcf, output_vcf, training_type):
+		""" Generates a truthset
+			Parameters
+			----------
+				sample
+				options
+				training_type: {'RNA-seq', 'VAF', 'Intersection'}
+		 """
+
+		reader = vcf.Reader(open(input_vcf, 'r'))
+		writer = vcf.Writer(open(output_vcf, 'w'), reader)
+		#vcf_reader = vcf.Reader(filename='vcf/test/tb.vcf.gz')
+		#vcf_writer = vcf.Writer(open('/dev/null', 'w'), vcf_reader)
+		isFirstIndel = True
+		for index, record in enumerate(reader):
+			recordStatus = self._validate_record(record, training_type)
+			isValid = recordStatus['validation status']
+			
+			if isValid or (record.is_indel):
+				writer.write_record(record)
+			if record.is_indel:
+				isFirstIndel = False
+		reader = vcf.Reader(open(output_vcf, 'r'))
+		return reader
+
+	def _validate_record(self, record, training_type):
+		""" Determines if a given record is within the truthset.
+			Returns
+			-------
+				dict<>
+					* 'chrom': 
+					* 'position': 
+					* 'validation method': 
+					* 'validation status': 
+		"""
+		if training_type == 'Intersection':
+			recordStatus = self._from_intersection(record)
+		elif training_type == 'RNA-seq':
+			#Assume the record is from the vcf from the RNA-seq pipeline.
+			#Assume all RNA-seq variants are true variants.
+			recordStatus = self._from_RNA(record)
+		elif training_type == 'VAF':
+			recordStatus = self._from_VAF(record)
+
+		return recordStatus
+
+
+	def _generate_truthsetOBS(self, sample, options, training_type):
+		print("Truthset._generate_table({0}, {1}, {2})".format(type(sample), type(options), training_type))
+		table = list()
+		training_files = dict()
+		if training_type == 'RNA-seq' or training_type is None:
+			filename = os.path.join(
+				options['Pipeline Options']['somatic pipeline folder'],
+				sample['PatientID'],
+				'HaplotypeCaller', 'RNA-seq',
+				'TCGA-2H-A9GF-01A.RNA.raw_snps_indels.vcf')
+			training_files['RNA-seq'] = [filename]
+		
+		if training_type == 'Intersection':
+			filename = os.path.join(
+				options['Pipeline Options']['processed vcf folder'], 
+				"merged_vcfs", 
+				"{0}_vs_{1}.merged.vcf".format(sample['NormalID'], sample['SampleID']))
+			training_files['Intersection'] = [filename]
+		
+		if training_type == 'VAF' or training_type is None:
+			training_files['VAF'] = GetVariantList(sample, options)
+		
+		pprint(training_files)
+		for t_type, filenames in training_files.items():
+			for filename in filenames:
+				print(t_type, filename)
+				if isinstance(filenames, dict):
+					caller, filename = filename, filenames[filename]
+				else: caller = None
+				with open(filename, 'r') as vcf_file:
+					vcf_reader = vcf.Reader(fsock = vcf_file)
+					for index, record in enumerate(vcf_reader):
+						#print(record)
+						if t_type == 'Intersection':
+							row = self._from_intersection(record)
+						elif t_type == 'RNA-seq':
+							row = self._from_RNA(record)
+						elif t_type == 'VAF':
+							row = self._from_VAF(record, caller = caller)
+						else:
+							print(t_type, " is not a valid training type!")
+						row['sample'] = sample['SampleID']
+						table.append(row)
+		return table
+	
+	def _from_intersection(self, record):
+		if '-' in record.INFO['set']:
+			_separator = '-'
+		else: _separator = '_'
+
+		callset = [i for i in record.INFO['set'].split(_separator) if 'filtered' not in i.lower()]
+
+		_is_intersection = len(callset) == 1 and callset[0] == 'Intersection'
+		_is_in_n_sets = int(len(callset) >= 5)
+		validation_status = int(_is_intersection or _is_in_n_sets)
+		if _is_intersection: validation_status = 5
+		else: validation_status = len(callset)
+
+
+		row = {
+			'chrom': record.CHROM,
+			'position': record.POS,
+			'validation method': 'Intersection',
+			'validation status': int(validation_status == 5)
+		}
+		return row
+
+	def _from_dream(self, sample, filename):
+		pass
+	@staticmethod
+	def _from_RNA(record):
+
+		row = {
+			'chrom': record.CHROM,
+			'position': record.POS,
+			'validation method': 'RNA-seq',
+			'validation status': 1
+		}
+		return row
+
+	def _from_VAF(self, record, caller):
+		sample_vaf = self._getSampleVAF(record, caller)
+		normal_vaf = sample_vaf['NORMAL']['vaf']
+		tumor_vaf = sample_vaf['TUMOR']['vaf']
+
+
+		#Filter out variants that were rejected by a caller
+		#This is only needed for variants in the callsets of a single caller
+		#filter_out = self._filterOut(record, caller)
+		filter_out = False
+		#Validate variants according to VAF status.
+		#This is only for testing purposes, a better version should be used later.
+		_somatic_vaf = (tumor_vaf >= 0.08 and normal_vaf < 0.03) or (tumor_vaf < 0.08 and normal_vaf == 0.0)
+		if _somatic_vaf and not filter_out:
+			validation_status = 1 #Somatic
+		elif (tumor_vaf < 0.08 and (normal_vaf > 0.0 and normal_vaf < 0.03)) or filter_out:
+			validation_status = 0 #Non-Somatic
+		else: validation_status = 2 #'Unknown'
+
+		row = {
+			'chrom': record.CHROM,
+			'position': record.POS,
+			'validation method': 'VAF',
+			'validation status': validation_status
+		}
+		return row
+	
+	def to_vcf(table, filename):
+		pass
+	@staticmethod
+	def save(table, filename):
+		table = sorted(table, key = lambda s: (s['sample'], s['chrom'], s['position']))
+		with open(filename, 'w', newline = '') as file1:
+			#reader = csv.DictReader(file1, delimiter = '\t')
+			writer = csv.DictWriter(file1, delimiter = '\t', fieldnames = ['sample', 'chrom', 'position', 'validation method', 'validation status'])
+			writer.writeheader()
+			writer.writerows(table)
+		return filename
+
+def GetVariantList(sample, options):
+	spf = options['Pipeline Options']['somatic pipeline folder']
+	print(type(spf))
+	print(spf)
+	vcf_folder = os.path.join(spf, sample['PatientID'])
 
 	patientID = sample['PatientID']
 	normalID  = sample['NormalID']
@@ -581,31 +993,36 @@ def GetVariantList(sample, options):
 	variants   = {
 		#os.path.join(options['output']['Bambino'].format(patient = patientID),"{0}_vs_{1}.bambino.vcf".format(normalID, tumorID)),
 		#os.path.join(options['output']['Haplotypecaller'].format(patient = patientID), "{0}_vs_{1}.raw.snps.indels.vcf".join(normalID, tumorID)),
-		'muse':          os.path.join(vcf_folder, "{0}_vs_{1}.MuSE.vcf".format(normalID, tumorID)),
-		'mutect2':       os.path.join(vcf_folder, "{0}_vs_{1}.mutect2.vcf".format(normalID, tumorID)),
-		'somaticsniper': os.path.join(vcf_folder, "{0}_vs_{1}.somaticsniper.hq.vcf".format(normalID, tumorID)),
-		'strelka-indel': os.path.join(vcf_folder,"results", "{0}_vs_{1}.passed.somatic.indels.strelka.vcf".format(normalID, tumorID)),
-		'strelka-snv':   os.path.join(vcf_folder,"results", "{0}_vs_{1}.passed.somatic.snvs.strelka.vcf".format(normalID, tumorID)),
-		'varscan-indel':       os.path.join(vcf_folder, "{0}_vs_{1}.snp.Somatic.hc".format(normalID, tumorID)),
-		'varscan-snv': os.path.join()
+		'muse':          os.path.join(vcf_folder, "MuSE", 				"{0}_vs_{1}.Muse.vcf".format(normalID, tumorID)),
+		'mutect':        os.path.join(vcf_folder, "MuTect2", 			"{0}_vs_{1}.mutect2.vcf".format(normalID, tumorID)),
+		'somaticsniper': os.path.join(vcf_folder, "SomaticSniper", 		"{0}_vs_{1}.somaticsniper.hq.vcf".format(normalID, tumorID)),
+		'strelka-indel': os.path.join(vcf_folder, "Strelka", "results", "{0}_vs_{1}.passed.somatic.indels.vcf.strelka.vcf".format(normalID, tumorID)),
+		'strelka-snv':   os.path.join(vcf_folder, "Strelka", "results", "{0}_vs_{1}.passed.somatic.snvs.vcf.strelka.vcf".format(normalID, tumorID)),
+		'varscan-indel': os.path.join(vcf_folder, "Varscan", 			"{0}_vs_{1}.raw.indel.vcf".format(normalID, tumorID)),
+		'varscan-snv':   os.path.join(vcf_folder, "Varscan", 			"{0}_vs_{1}.raw.snp.vcf".format(normalID, tumorID))
 	}
 
 	#variants = {k:v for k, v in variants.items() if os.path.isfile(v)}
 
 	return variants
 
-def VariantEffectPredictor(sample, options, variants, output_folder):
+def VariantEffectPredictor(sample, options, merged_variants):
 	""" VariantEffectPredictor uses terminology as defined by the Sequence Ontology Project
 	"""
 	#perl variant_effect_predictor.pl --cache -i input.txt -o output.txt	
-
+	print("Running VEP...", flush = True)
+	pprint(merged_variants)
+	
+	output_folder = os.path.join(options['Pipeline Options']['processed vcf folder'], "vep_vcfs")
 	reference = options['Reference Files']['reference genome']
 	program = options['Programs']['varianteffectpredictor']
+	
+	checkdir(output_folder)
 
-	pprint(variants)
-	for index, source in enumerate(variants):
+	annotated_variants = dict()
+	for caller, source in merged_variants.items():
 		_, fn = os.path.split(source)
-		destination = os.path.join(output_folder, fn + '.VEP_annotated.vcf')
+		destination = os.path.join(output_folder, os.path.splitext(fn)[0] + '.vep.vcf')
 
 		command = """perl {vep} \
 			--input_file {inputfile} \
@@ -627,259 +1044,366 @@ def VariantEffectPredictor(sample, options, variants, output_folder):
 				output = destination,
 				reference = reference)
 		#print(command)
-		Terminal(command, show_output = True)
+		if not os.path.exists(destination):
+			Terminal(command, show_output = True)
 
-	vep_log = {
+		annotated_variants[caller] = destination
 
-	}
-	return vep_log
+	return annotated_variants
 
-def vcftomaf(vcf_file = None):
-	vcftomaf_script = "/home/upmc/Programs/vcf2maf-1.6.12/vcf2maf.pl"
-	output_folder = "/home/upmc/Documents/Variant_Discovery_Pipeline/8_combined_variants"
-	output_file = os.path.join(output_folder, "maf_test.maf")
+class toMAF:
+	def __init__(self, sample, options, input_vcf, truthset = None):
+		""" Converts a VCF file to and annotated MAF file. Include additional fields such as VAF.
+			Additional Columns
+			------------------
+				VAF: The variant allele frequency
 
-	if vcf_file is None:
-		vcf_file = os.path.join(output_folder, "TCGA-2H-A9GF-01A-11D-A37C-09_TCGA-2H-A9GF-11A-11D-A37F-09_mutect_annotated.vcf")
+		"""
+		if truthset is None:
+			truthset = Truthset(sample, options)
 
-	#perl vcf2maf.pl --input-vcf tests/test.vcf --output-maf tests/test.vep.maf --tumor-id WD1309 --normal-id NB1308
+		maf_file = self.vcftomaf(sample, options, input_vcf)
+		maf_file = self.modifyMAF(sample, options, maf_file, truthset)
 
-	command = """perl {script} \
-				--input-vcf {vcf_file} \
-				--output-maf {output} \
-				--tumor-id {tumor} \
-				--normal-id {normal}""".format(
-					script = vcftomaf_script,
-					vcf_file = vcf_file,
-					output = output_file)
 
-def VariantAnnotator(sample, options):
+		output_folder = options['Pipeline Options']['maf folder']
+		output_filename = os.path.join(
+			output_folder, 
+			sample['PatientID'],
+			os.path.splitext(os.path.basename(input_vcf))[0] + '.raw.maf')
+
+		checkdir(os.path.dirname(output_filename))
+		print("Saving to ", output_filename)
+		
+		with open(output_filename, 'w', newline = '') as file1:
+			file1.write("#version 2.4\n")
+			fieldnames = "Hugo_Symbol	Entrez_Gene_Id	Center	NCBI_Build	Chromosome	Start_Position	End_Position	Strand	Variant_Classification	Variant_Type	Reference_Allele	Tumor_Seq_Allele1	Tumor_Seq_Allele2	dbSNP_RS	dbSNP_Val_Status	Tumor_Sample_Barcode	Matched_Norm_Sample_Barcode	Match_Norm_Seq_Allele1	Match_Norm_Seq_Allele2	Tumor_Validation_Allele1	Tumor_Validation_Allele2	Match_Norm_Validation_Allele1	Match_Norm_Validation_Allele2	Verification_Status	Validation_Status	Mutation_Status	Sequencing_Phase	Sequence_Source	Validation_Method	Score	BAM_File	Sequencer	Tumor_Sample_UUID	Matched_Norm_Sample_UUID	HGVSc	HGVSp	HGVSp_Short	Transcript_ID	Exon_Number	t_depth	t_ref_count	t_alt_count	n_depth	n_ref_count	n_alt_count	all_effects	Allele	Gene	Feature	Feature_type	Consequence	cDNA_position	CDS_position	Protein_position	Amino_acids	Codons	Existing_variation	ALLELE_NUM	DISTANCE	STRAND_VEP	SYMBOL	SYMBOL_SOURCE	HGNC_ID	BIOTYPE	CANONICAL	CCDS	ENSP	SWISSPROT	TREMBL	UNIPARC	RefSeq	SIFT	PolyPhen	EXON	INTRON	DOMAINS	GMAF	AFR_MAF	AMR_MAF	ASN_MAF	EAS_MAF	EUR_MAF	SAS_MAF	AA_MAF	EA_MAF	CLIN_SIG	SOMATIC	PUBMED	MOTIF_NAME	MOTIF_POS	HIGH_INF_POS	MOTIF_SCORE_CHANGE	IMPACT	PICK	VARIANT_CLASS	TSL	HGVS_OFFSET	PHENO	MINIMISED	ExAC_AF	ExAC_AF_AFR	ExAC_AF_AMR	ExAC_AF_EAS	ExAC_AF_FIN	ExAC_AF_NFE	ExAC_AF_OTH	ExAC_AF_SAS	GENE_PHENO	FILTER	flanking_bps	variant_id	variant_qual	ExAC_AF_Adj	ExAC_AC_AN_Adj	ExAC_AC_AN	ExAC_AC_AN_AFR	ExAC_AC_AN_AMR	ExAC_AC_AN_EAS	ExAC_AC_AN_FIN	ExAC_AC_AN_NFE	ExAC_AC_AN_OTH	ExAC_AC_AN_SAS	ExAC_FILTER".split('\t')
+			fieldnames += sorted(i for i in maf_file[0].keys() if i not in fieldnames)
+			print(fieldnames)
+			writer = csv.DictWriter(file1, delimiter = '\t', fieldnames = fieldnames)
+			writer.writeheader()
+			writer.writerows(maf_file)
+		self.filename = output_filename
+
+	@staticmethod
+	def modifyMAF(sample, options, input_maf, truthset):
+		""" Adds relevant information to the maf files
+			Additional Columns
+			------------------
+				Tumor_Sample_Barcode: SampleID
+				Matched_Norm_Sample_Barcode: NormalID
+				tumor_bam_uuid: SampleUUID
+				normal_bam_uuid: NormalUUID
+
+				Validation_Status_VAF: Validation status determined from VAF
+					0: Non-Somatic
+					1: Somatic
+					2: Unknown
+				Validation_Status_RNA-seq:
+					0: Not present in RNA-seq
+					1: Present in RNA-seq
+				Validation_Status_Intersect:
+					0-5: Present in n callers
+				Filter_Status: Whether the variant passes all required filters
+				Filter_Score: float
+					Probability of a variant being somatic
+				Callset:
+				
+			Modifies Columns
+			----------------
+				dbSNP_Val_Status: Whether the variant is in dbSNP
+				Sequencer:
+		"""
+		print("toMAF.modifyMAF(sample, options, {0}, truthset)".format(input_maf))
+		output_maf = list()
+
+		with open(input_maf, 'r') as maf_file:
+			maf_file.seek(0)
+			next(maf_file)
+			reader = csv.DictReader(maf_file, delimiter = '\t')
+
+			for index, row in enumerate(reader):
+				if index % 500 == 0: print(index)
+
+				row['Tumor_Sample_Barcode'] 		= sample['SampleID']
+				row['Matched_Norm_Sample_Barcode'] 	= sample['NormalID']
+				row['tumor_bam_uuid'] 				= sample['SampleUUID']
+				row['normal_bam_uuid'] 				= sample['NormalUUID']
+				#row['Callset'] 						= 'MuSE'
+				#pprint(row)
+				validation_status = truthset(sample = sample['SampleID'], chrom = row['Chromosome'], pos = row['Start_Position'])			
+
+				row['Validation_Status_VAF'] 		= validation_status.get('VAF')
+				row['Validation_Status_RNA'] 		= validation_status.get('RNA-seq')
+				row['Validation_Status_Intersect'] 	= validation_status.get('Intersection')
+
+				row['Filter_Status'] = 0
+
+				output_maf.append(row)
+
+		return output_maf
+
+	@staticmethod
+	def vcftomaf(sample, options, input_vcf):
+		"""
+		 --input-vcf      Path to input file in VCF format
+		 --output-maf     Path to output MAF file [Default: STDOUT]
+		 --tmp-dir        Folder to retain intermediate VCFs after runtime [Default: Folder containing input VCF]
+		 --tumor-id       Tumor_Sample_Barcode to report in the MAF [TUMOR]
+		 --normal-id      Matched_Norm_Sample_Barcode to report in the MAF [NORMAL]
+		 --vcf-tumor-id   Tumor sample ID used in VCF's genotype columns [--tumor-id]
+		 --vcf-normal-id  Matched normal ID used in VCF's genotype columns [--normal-id]
+		 --custom-enst    List of custom ENST IDs that override canonical selection
+		 --vep-path       Folder containing variant_effect_predictor.pl [~/vep]
+		 --vep-data       VEP's base cache/plugin directory [~/.vep]
+		 --vep-forks      Number of forked processes to use when running VEP [4]
+		 --buffer-size    Number of variants VEP loads at a time; Reduce this for low memory systems [5000]
+		 --any-allele     When reporting co-located variants, allow mismatched variant alleles too
+		 --ref-fasta      Reference FASTA file [~/.vep/homo_sapiens/86_GRCh37/Homo_sapiens.GRCh37.75.dna.primary_assembly.fa.gz]
+		 --filter-vcf     The non-TCGA VCF from exac.broadinstitute.org [~/.vep/ExAC_nonTCGA.r0.3.1.sites.vep.vcf.gz]
+		 --max-filter-ac  Use tag common_variant if the filter-vcf reports a subpopulation AC higher than this [10]
+		 --species        Ensembl-friendly name of species (e.g. mus_musculus for mouse) [homo_sapiens]
+		 --ncbi-build     NCBI reference assembly of variants MAF (e.g. GRCm38 for mouse) [GRCh37]
+		 --cache-version  Version of offline cache to use with VEP (e.g. 75, 82, 86) [Default: Installed version]
+		 --maf-center     Variant calling center to report in MAF [.]
+		 --retain-info    Comma-delimited names of INFO fields to retain as extra columns in MAF []
+		 --min-hom-vaf    If GT undefined in VCF, minimum allele fraction to call a variant homozygous [0.7]
+		 --remap-chain    Chain file to remap variants to a different assembly before running VEP
+		 --help           Print a brief help message and quit
+		 --man            Print the detailed manual
+
+		"""
+		print("Converting VCF to MAF...", flush = True)
+		vcftomaf_script = options['Programs']['vcf2maf']
+		reference = options['Reference Files']['reference genome']
+		vep_location = os.path.dirname(options['Programs']['varianteffectpredictor'])
+		#input_vcf = merged_variants
+		
+		output_folder = options['Pipeline Options']['maf folder']
+		output_file = os.path.join(output_folder, os.path.splitext(os.path.basename(input_vcf))[0] + ".maf")
+
+		if isinstance(input_vcf, dict): input_vcf = list(input_vcf.values())[0]
+		#perl vcf2maf.pl --input-vcf tests/test.vcf --output-maf tests/test.vep.maf --tumor-id WD1309 --normal-id NB1308
+
+		command = """perl {script} \
+			--input-vcf {vcf} \
+			--output-maf {maf} \
+			--tumor-id {tumor} \
+			--normal-id {normal} \
+			--vcf-tumor-id TUMOR \
+			--vcf-normal-id NORMAL \
+			--buffer-size 100 \
+			--ref-fasta {reference} \
+			--ncbi-build {ncbi} \
+			--vep-path {vep}""".format(
+				script = vcftomaf_script,
+				vcf = input_vcf,
+				maf = output_file,
+				tumor = sample['SampleID'],
+				normal = sample['NormalID'],
+				reference = reference,
+				ncbi = 'GRCh38',
+				vep = vep_location)
+		#print(command)
+		Terminal(command)
+
+		return output_file
+
+	def filterMAF(sample, options, input_maf, caller):
+		"""
+			Filter Criteria
+			---------------
+				dbSNP: filter out variants present in dbSNP
+				Indel Filtering: filter out variants in known indels
+				Germline/normal filtering: filter out variants present in a panel of normals. (derive from GDC MAFs?)
+				PON Filtering
+				
+		"""
+		return row
+
+def ProcessVariants(sample_list, options, truthset):
 	"""
-		 java -jar GenomeAnalysisTK.jar \
-		-R reference.fasta \
-		-T VariantAnnotator \
-		-I input.bam \
-		-o output.vcf \
-		-A Coverage \
-		-V input.vcf \
-		-L input.vcf \
-   --dbsnp dbsnp.vcf
+		1. toMAF
+		2. Combine Mafs per patient and assign scores.
+		4. Combine All Mafs
 	"""
+	all_variants = GetVariantList(sample, options)
+	#pprint(all_variants)
 
-	va_command =  """java {memory} -jar {GATK} \
-		-R {reference} \
-		-T VariantAnnotator \
-		-I {bam} \
-		-o output.vcf \
-		-A Coverage \
-		-V input.vcf \
-		-L input.vcf \
-		--dbsnp dbsnp.vcf""".format(
-		memory = options['Parameters']['JAVA_MAX_MEMORY_USAGE'],
-		GATK = gatk_program,
-		reference = reference,
-		bam = "")
+	SomaticSeqTraining(all_variants, options, truthset)
+	SomaticSeqPredictor()
 
-def VariantRecalibrator(sample, options, variant_type):
-	"""	Recalibrates variant quality scores.
-		Example Usage
-		-------------
-		java -jar GenomeAnalysisTK.jar \ 
-		-T VariantRecalibrator \ 
-		-R reference.fa \ 
-		-input raw_variants.vcf \ 
-		-resource:hapmap,known=false,training=true,truth=true,prior=15.0 hapmap.vcf \ 
-		-resource:omni,known=false,training=true,truth=true,prior=12.0 omni.vcf \ 
-		-resource:1000G,known=false,training=true,truth=false,prior=10.0 1000G.vcf \ 
-		-resource:dbsnp,known=true,training=false,truth=false,prior=2.0 dbsnp.vcf \ 
-		-an DP \ 
-		-an QD \ 
-		-an FS \ 
-		-an SOR \ 
-		-an MQ \
-		-an MQRankSum \ 
-		-an ReadPosRankSum \ 
-		-an InbreedingCoeff \
-		-mode SNP \ 
-		-tranche 100.0 -tranche 99.9 -tranche 99.0 -tranche 90.0 \ 
-		-recalFile recalibrate_SNP.recal \ 
-		-tranchesFile recalibrate_SNP.tranches \ 
-		-rscriptFile recalibrate_SNP_plots.R 
 
-		Reference
-		---------
-			https://software.broadinstitute.org/gatk/guide/article?id=2805
+def SomaticSeqTraining(sample_variants, options, truthset):
+	""" Runs SomaticSeq
+		Parameters
+		----------
+			sample_variants: dict<>
+				A dictionary mapping callers to the output vcfs.
 	"""
-	#-------------------------- Generate the sample-specific options ---------------------------
-	prefix = "{0}_vs_{1}".format(sample['NormalID'], sample['SampleID'])
+	variants = sample_variants
+	output_folder = os.path.join(
+		'/home/upmc/Documents/Genomic_Analysis/somaticseq', 'training')
+	checkdir(output_folder)
+
+	somaticseq_location = os.path.join(
+		options['Programs']['SomaticSeq'],
+		"SomaticSeq.Wrapper.sh")
+	
+	ada_script = os.path.join(
+		options['Programs']['SomaticSeq'],
+		'r_scripts',
+		"ada_model_builder.R")
+	
+	gatk_location = options['Programs']['GATK']
 	reference = options['Reference Files']['reference genome']
+	cosmic = options['Reference Files']['cosmic']
+	dbSNP = options['Reference Files']['dbSNP']
 
-	#------------------------ Build the recalibration model ----------------------
+	print("Script Information: ")
+	print("\t", ada_script)
+	print("\t", os.path.isfile(ada_script))
 
-	snp_build_command = """java {memory} -jar {GATK} \
-		-T VariantRecalibrator \
-		-R {reference} \
-		-input {raw_variants} \
-		-an QD \
-		-an FS \
-		-an SOR \
-		-an MQ \
-		-mode SNP \
-		-resource:hapmap,known=false,training=true,truth=true,prior=15.0 {hapmap} \
-		-resource:omni,known=false,training=true,truth=true,prior=12.0 {OMNI} \
-		-resource:1000G,known=false,training=true,truth=false,prior=10.0 {OTG} \
-		-resource:dbsnp,known=true,training=false,truth=false,prior=2.0 {dbSNP} \
-		-tranche 100.0 -tranche 99.9 -tranche 99.0 -tranche 90.0 \
-		-recalFile {prefix}.recalibrate_SNP.recal \
-		-tranchesFile {prefix}.recalibrate_SNP.tranches \
-		-rscriptFile {prefix}.recalibrate_SNP_plots.R""".format(
-			memory       = options['Parameters']['JAVA_MAX_MEMORY_USAGE'],
-			GATK         = options['Programs']['GATK'],
-			reference    = reference,
-			prefix       = prefix,
-			raw_variants = "",
-			mode         = variant_type.upper(),
+	command = """{somaticseq} \
+		--mutect2 {mutect} \
+		--varscan-snv {varscan_snv} \
+		--varscan-indel {varscan_indel} \
+		--sniper {sniper} \
+		--muse {muse} \
+		--strelka-snv {strelka_snv} \
+		--strelka-indel {strelka_indel} \
+		--normal-bam {normal} \
+		--tumor-bam {tumor} \
+		--ada-r-script {ada} \
+		--genome-reference {reference} \
+		--cosmic {cosmic} \
+		--dbsnp {dbSNP} \
+		--gatk {gatk} \
+		--inclusion-region {targets} \
+		--truth-snv {truthset_snv} \
+		--truth-indel {truthset_indel} \
+		--output-dir {output_folder}""".format(
+			somaticseq = somaticseq_location,
+			gatk = gatk_location,
+			ada = ada_script,
 
-			hapmap       = options['Reference Files']['hapmap'],
-			OMNI         = options['Reference Files']['omni'],
-			OTG          = options['Reference Files']['1000G'],
-			dbSNP        = options['Reference Files']['dbSNP'])
-
-	#------------------------- Recalibrate the SNP quality scores ------------------------
-	#ts_filter_level = 99.9 recommended by GATK best practices
-	#Retrieves 99.9% of true sites, includes an amount of false positives
-	snp_apply_command = """java {memory} -jar {gatk} \
-		-T ApplyRecalibration \
-		-R {reference} \
-		-input {raw_variants} \
-		-mode SNP \
-		--ts_filter_level 99.9 \
-		-recalFile {prefix}.recalibrate_SNP.recal \
-		-tranchesFile {prefix}.recalibrate_SNP_plots.R \
-		-o {prefix}.recalibrated_snps_raw_indels.vcf""".format(
-			memory = options['Parameters']['JAVA_MAX_MEMORY_USAGE'],
-			gatk = gatk_program,
+			normal = sample['NormalBAM'],
+			tumor = sample['TumorBAM'],
+			targets = sample['ExomeTargets'],
 			reference = reference,
-			raw_variants = "",
-			prefix = prefix)
-	#----------------------------- Recalibrate Indels ----------------------------------
-	indel_build_command = """java {memory} -jar {gatk} \
-		-T VariantRecalibrator \
-		-R {reference} \
-		-input {prefix}.recalibrated_snps_raw_indels.vcf \
-		-an QD \
-		-an FS \
-		-an SOR \
-		-an MQ \
-		-mode INDEL \
-		--maxGaussians 4 \
-		-resource:dbsnp,known=true,training=false,truth=false,prior=2.0 {dbSNP} \
-		-resource:mills,known=false,training=true,truth=true,prior=12.0 {mills} \
-		-tranche 100.0 -tranche 99.9 -tranche 99.0 -tranche 90.0 \
-		-recalFile {prefix}.recalibrate_INDEL.recal \
-		-tranchesFile {prefix}.recalibrate_INDEL.tranches \
-		-rscriptFile {prefix}.recalibrate_INDEL_plots.R""".format(
-			memory       = options['Parameters']['JAVA_MAX_MEMORY_USAGE'],
-			GATK         = options['Programs']['GATK'],
-			reference    = reference,
-			prefix       = prefix,
-			raw_variants = "",
+			cosmic = cosmic,
+			dbSNP = dbSNP,
 
-			mills        = "",
-			dbSNP        = options['Reference Files']['dbSNP'])
+			muse = variants['muse'],
+			mutect = variants['mutect'],
+			sniper = variants['somaticsniper'],
+			strelka_snv = variants['strelka-snv'],
+			strelka_indel = variants['strelka-indel'],
+			varscan_snv = variants['varscan-snv'],
+			varscan_indel = variants['varscan-indel'],
+			
+			truthset_snv = truthset.snv_filename,
+			truthset_indel = truthset.indel_filename,
+			output_folder = output_folder)
+	Terminal(command)
+
+def SomaticSeqPredictor(variants, options):
+	somaticseq_output_folder = "/home/upmc/Documents/Genomic_Analysis/somaticseq"
+	prediction_output_folder = os.path.join(somaticseq_output_folder, 'prediction')
+	training_output_folder = os.path.join(somaticseq_output_folder, 'training')
+	checkdir(prediction_output_folder)
 	
-	indel_apply_command = """java {memory} -jar {gatk} \
-		-T ApplyRecalibration \
-		-R {reference} \
-		-input {raw_variants} \
-		-mode INDEL \
-		--ts_filter_level 99.9 \
-		-recalFile {prefix}.recalibrate_INDEL.recal \
-		-tranchesFile {prefix}.recalibrate_INDEL_plots.R \
-		-o {prefix}.recalibrated_variants.vcf""".format(
-			memory = options['Parameters']['JAVA_MAX_MEMORY_USAGE'],
-			gatk = gatk_program,
+	somaticseq_location = os.path.join(
+		options['Programs']['SomaticSeq'],
+		"SomaticSeq.Wrapper.sh")
+	
+	ada_script = os.path.join(options['Programs']['SomaticSeq'],
+		"r_scripts",
+		"ada_model_predictor.R")
+	
+	gatk_location = options['Programs']['GATK']
+
+	normal = sample['NormalBAM']
+	tumor = sample['TumorBAM']
+	reference = options['Reference Files']['reference genome']
+	cosmic = options['Reference Files']['cosmic']
+	dbSNP = options['Reference Files']['dbSNP']
+
+	snv_classifier = os.path.join(training_output_folder, "Ensemble.sSNV.tsv.Classifier.RData")
+	indel_classifier = os.path.join(prediction_output_folder, "Ensemble.sINDEL.tsv.Classifier.RData")
+
+	command = """{somaticseq} \
+		--mutect2 {mutect} \
+		--varscan-snv {varscan_snv} \
+		--varscan-indel {varscan_indel} \
+		--sniper {somaticsniper} \
+		--muse {muse} \
+		--strelka-snv {strelka_snv} \
+		--strelka-indel {strelka_indel} \
+		--normal-bam {normal} \
+		--tumor-bam {tumor} \
+		--ada-r-script {ada_model_predictor} \
+		--classifier-snv {snv_classifier} \
+		--classifier-indel {indel_classifier} \
+		--pass-threshold 0.5 \
+		--lowqual-threshold 0.1 \
+		--genome-reference {reference} \
+		--cosmic {cosmic} \
+		--dbsnp {dbSNP} \
+		--inclusion-region {targets} \
+		--gatk {GATK} \
+		--output-dir {output_folder}""".format(
+			somaticseq = somaticseq_location,
+			GATK = gatk_location,
+			ada_model_predictor = ada_script,
+
+			muse = variants['muse'],
+			mutect = variants['mutect'],
+			somaticsniper = variants['somaticsniper'],
+			strelka_snv = variants['strelka-snv'],
+			strelka_indel = variants['strelka-indel'],
+			varscan_snv = variants['varscan-snv'],
+			varscan_indel = variants['varscan-indel'],
+
+			normal = normal,
+			tumor = tumor,
+
+			
 			reference = reference,
-			raw_variants = "",
-			prefix = prefix)
+			targets = sample['ExomeTargets'],
+			cosmic = cosmic,
+			dbSNP = dbSNP,
+			snv_classifier = snv_classifier,
+			indel_classifier = indel_classifier,
+			output_folder = prediction_output_folder)
+	Terminal(command)
 
-def ProcessPipelineMethod(sample, options):
-	"""
-		1. Copy raw VCF Files to the processing directory
-			/Processing Directory
-				/PatientID
-					/raw_vcfs
-					/harmonized_vcfs
-					/processed_vcfs
-		2. Harmonize VCFs
-		3. Merge VCFs
-		4. Generate Truthset
-	"""
-	#-------------------------- make all of the relevant folders ----------------------------
-	pipeline_folder = os.path.join(os.getcwd(), '8_combined_variants') #Holds folders for each patient
-	patient_folder = os.path.join(pipeline_folder, sample['PatientID']) #holds folders for an individual patient
-	raw_variant_folder = os.path.join(patient_folder, 'raw_variants')
-	annotated_variants_folder = os.path.join(patient_folder, 'annotated_variants')
+def plotVAF():
+	pass
 
-	for _dir in [pipeline_folder, patient_folder, raw_variant_folder, annotated_variants_folder]:
-		if not os.path.isdir(_dir):
-			os.mkdir(_dir)
-	
-	#-------------------------- Get a list of all the variants used in this analysis ---------------------
-	sample_variants = GetVariantList(sample, options)
-	
-	
-	#------------------------------ Annotate Variants ----------------------------------------
-	raw_variants = list()
+if __name__ == "__main__" and True:
+	with open("DNA-seq_Sample_List.tsv", 'r') as file1:
+		samples = list(csv.DictReader(file1, delimiter = '\t'))
+	sample = {
+		'PatientID':  "TCGA-2H-A9GF",
+		'SampleID':   "TCGA-2H-A9GF-01A",
+		'NormalID':   "TCGA-2H-A9GF-11A",
+		'SampleUUID': "2d4f1ce4-4613-403a-90ec-fd6a551b6487",
+		'NormalUUID': "2d1700f2-0f9b-4af6-a59b-4e6a51e01368",
+		'NormalBAM':  "/home/upmc/Documents/genome_files/2d4f1ce4-4613-403a-90ec-fd6a551b6487/fcd15f0228c03bc602ae63c2e2b1b85c_gdc_realn.bam",
+		'TumorBAM':   "/home/upmc/Documents/genome_files/2d1700f2-0f9b-4af6-a59b-4e6a51e01368/3e683408778f2ebe86f6c1f9ff936b0b_gdc_realn.bam",
+		'ExomeTargets': "/home/upmc/Documents/Reference/SeqCap_EZ_Exome_v3_capture.hg38_GDC_official.bed"
+	}
+	sample = [i for i in samples if i['PatientID'] == 'TCGA-2H-A9GO'][0]
 
-	for key, source in sample_variants.items():
-		folder, file_name = os.path.split(source)
-		destination = os.path.join(raw_variant_folder, file_name)
-		shutil.copy2(source, destination)
-		raw_variants.append(destination)
-
-
-	vep_log = VariantEffectPredictor(sample, options, raw_variants, annotated_variants_folder)
-
-def generate_truthset(variants, merged_variants, training_type):
-	""" Generates a truthset based on the passed variants/
-		Option 1: intersection of all 5 callers.
-		Option 2: Dream-SEQ data
-		Option 3: RNA-seq?
-	"""
-
-	if training_type == 'DREAM': pass
-	elif training_type == 'intersection':
-		#Use the intersection of the callers
-		#Open the merged/combined vcf file and mark all variants in the intersection as 'true'
-		pass
-
-def ProcessVariants(sample, options):
-	"""
-		1. Copy raw VCF Files to the processing directory
-			/Processing Directory
-				/PatientID
-					/raw_vcfs
-					/harmonized_vcfs
-					/processed_vcfs
-		2. Harmonize VCFs
-		3. Merge VCFs
-		4. Generate Truthset
-	"""
-	output_folder = ""
-	raw_variants = GetVariantList(sample, options)
-
-	#Merge the vcf files with gatk combineVariants.
-	#Output is in output_folder/merged_vcfs/
-	HarmonizeVCFs(raw_variants, output_folder)
-
-if __name__ == "__main__":
-	sample = {}
+	options_filename = os.path.join(os.getcwd(), "0_pipeline_files", "pipeline_configuration.txt")
 	options = configparser.ConfigParser()
-	options.read(filename)
-	ProcessVariants()
-
-
-
-
-
+	options.read(options_filename)
+	sample_variants = GetVariantList(sample, options)
+	SomaticSeqPredictor(sample_variants, options)
+	#truthset = Truthset(sample, options, training_type = 'Intersection')
+	#ProcessVariants(sample, options, truthset)
+	#input_vcf = "/home/upmc/Documents/Genomic_Analysis/1_input_vcfs/TCGA-2H-A9GF/MuSE/TCGA-2H-A9GF-11A_vs_TCGA-2H-A9GF-01A.Muse.vcf"
+	#toMAF(sample, options, input_vcf)
+elif True:
+	pass
