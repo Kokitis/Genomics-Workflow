@@ -2080,10 +2080,15 @@ class SampleFiles:
 
 
 class GenomicsPipeline:
-	def __init__(self, sample_filename, config_filename, somatic_callers = None, copynumber_callers = None):
+	def __init__(self, sample_filename, config_filename, caller_status_filename = None, somatic_callers = [], copynumber_callers = []):
+		somatic_callers = [i.lower() for i in somatic_callers]
+		copynumber_callers = [i.lower() for i in copynumber_callers]
 
-		
-		sample_list, config= self._load_files(sample_filename, config_filename)
+		pipeline_files = self._load_files(sample_filename, config_filename, caller_status_filename)
+		sample_list = pipeline_files['samples']
+		config = pipeline_files['options']
+		caller_status = pipeline_files['caller status']
+		#sample_list, config= self._load_files(sample_filename, config_filename)
 		
 		
 		LOGGER.info("Somatic Callers: " + ', '.join(somatic_callers))
@@ -2097,7 +2102,7 @@ class GenomicsPipeline:
 
 			if use_this_sample['status']:
 				LOGGER.info("Analyzing {0}".format(sample['PatientID']))
-				sample_status = self.run_sample(sample, config, somatic_callers, copynumber_callers)
+				sample_status = self.run_sample(sample, config, somatic_callers, copynumber_callers, caller_status)
 			else:
 				if use_this_sample['manual']: use_this_sample_message = 'Manually Skipped'
 				elif use_this_sample['completed']: use_this_sample_message = 'Already Analyzed'
@@ -2110,16 +2115,35 @@ class GenomicsPipeline:
 
 
 	@staticmethod
-	def _load_files(sample_filename, config_filename):
+	def _load_files(sample_filename, config_filename, caller_status_filename):
 		
 		with open(sample_filename, 'r') as samplefile:
 			sample_list = list(csv.DictReader(samplefile, delimiter = '\t'))
 
 		#----------------------------------------Process Config ------------------------------------------
-		print(config_filename)
 		config = configparser.ConfigParser()
 		config.read(config_filename)
 		
+		if caller_status_filename is not None:
+			with open(caller_status_filename, 'r') as file1:
+				caller_status_file = list(csv.DictReader(file1, delimiter = '\t'))
+			caller_status = dict()
+			for row in caller_status_file:
+				if 'strelka' not in row.keys():
+					row['strelka'] = row.get('strelka-indel', False) and row.get('strelka-snv', False)
+				if 'varscan' not in row.keys():
+					row['varscan'] = row.get('varscan-indel', False) and row.get('varscan-snv', False)
+				caller_status[row['PatientID']] = row
+
+		else:
+			caller_status = dict()
+
+		response = {
+			'samples': sample_list,
+			'options': config,
+			'callerstatus': caller_status
+		}
+
 		#completed_samples = config['General Options']['completed sample log']
 
 		#spf = config['Pipeline Options']['somatic pipeline folder']
@@ -2221,7 +2245,7 @@ class GenomicsPipeline:
 				file1.write(line + '\n')
 	
 
-	def run_sample(self, sample, config, somatic_callers, copynumber_callers):
+	def run_sample(self, sample, config, somatic_callers, copynumber_callers, caller_status = dict()):
 		print("#"*200)
 		print("#"*90 + sample['PatientID'] + '#'*90)
 		print("#"*200)
@@ -2249,7 +2273,7 @@ class GenomicsPipeline:
 
 		if file_status:
 			if somatic_callers is not None:
-
+				somatic_callers = [i for i in somatic_callers if not caller_status.get(i, False)]
 				somatic_pipeline = SomaticPipeline(sample, config, somatic_callers)
 
 			if copynumber_callers is not None:
@@ -2288,6 +2312,7 @@ API = gdc_apiv2.GDCAPI()
 if __name__ == "__main__" and True:
 	#run_pipelines(samples = "/home/upmc/Documents/Variant_Discovery_Pipeline/sample_list.tsv")
 	config_filename = os.path.join(PIPELINE_DIRECTORY, "0_config_files", "pipeline_project_options.txt")
+	caller_status_filename = os.path.join(PIPELINE_DIRECTORY, "0_config_files", "caller_status.tsv")
 	if True:
 		sample_filename = os.path.join(PIPELINE_DIRECTORY, "LMD.sample_list.STAD.2017-03-09.tsv")
 		somatic_callers = ['MuSE', 'Varscan', 'Strelka', 'Somaticsniper', 'Mutect']

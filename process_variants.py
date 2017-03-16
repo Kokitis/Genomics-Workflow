@@ -681,7 +681,6 @@ class Truthset:
 		self.indel_filename = sample_truthset['filename-indel']
 		self.snv_filename = sample_truthset['filename-snv']
 
-
 	def __init__OBS(self, sample, options, training_type, **kwargs):
 		""" Generates a truthset based on the passed variants/
 			Option 1: intersection of all 5 callers.
@@ -982,7 +981,6 @@ class Truthset:
 		}
 
 		return result
-
 
 	def _generate_truthsetOBS(self, sample, options, training_type):
 		print("Truthset._generate_table({0}, {1}, {2})".format(type(sample), type(options), training_type))
