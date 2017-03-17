@@ -2124,7 +2124,7 @@ class GenomicsPipeline:
 		config = configparser.ConfigParser()
 		config.read(config_filename)
 		
-		if caller_status_filename is not None:
+		if caller_status_filename is not None and os.path.isfile(caller_status_filename):
 			with open(caller_status_filename, 'r') as file1:
 				caller_status_file = list(csv.DictReader(file1, delimiter = '\t'))
 			caller_status = dict()
@@ -2133,15 +2133,19 @@ class GenomicsPipeline:
 					row['strelka'] = row.get('strelka-indel', False) and row.get('strelka-snv', False)
 				if 'varscan' not in row.keys():
 					row['varscan'] = row.get('varscan-indel', False) and row.get('varscan-snv', False)
+				for caller in ['muse', 'mutect', 'somaticsniper', 'strelka', 'varscan']:
+					if not isinstance(row[caller], bool):
+						row[caller] = row[caller] == 'True'
 				caller_status[row['PatientID']] = row
 
 		else:
 			caller_status = dict()
-
+		
+		#pprint(caller_status)
 		response = {
 			'samples': sample_list,
 			'options': config,
-			'callerstatus': caller_status
+			'caller status': caller_status
 		}
 
 		#completed_samples = config['General Options']['completed sample log']
@@ -2150,7 +2154,7 @@ class GenomicsPipeline:
 
 		#is_empty = lambda p: len( list( os.listdir( os.path.join(spf, p) ) ) ) == 0
 
-		return sample_list, config
+		return response
 	
 	def _get_file_info(self, sample):
 		normal_info = API(sample['NormalUUID'], 'files')
@@ -2245,12 +2249,13 @@ class GenomicsPipeline:
 				file1.write(line + '\n')
 	
 
-	def run_sample(self, sample, config, somatic_callers, copynumber_callers, caller_status = dict()):
+	def run_sample(self, sample, config, somatic_callers, copynumber_callers, caller_status):
 		print("#"*200)
 		print("#"*90 + sample['PatientID'] + '#'*90)
 		print("#"*200)
 		sample_start = now()
 		self._make_patient_folders(sample, config)
+		sample_caller_status = caller_status.get(sample['PatientID'], dict())
 		normal_only = all(c == 'pon' for c in (somatic_callers + copynumber_callers))
 
 		normal_file_api, tumor_file_api = self._get_file_info(sample)
@@ -2273,7 +2278,7 @@ class GenomicsPipeline:
 
 		if file_status:
 			if somatic_callers is not None:
-				somatic_callers = [i for i in somatic_callers if not caller_status.get(i, False)]
+				somatic_callers = [i for i in somatic_callers if not sample_caller_status.get(i, False)]
 				somatic_pipeline = SomaticPipeline(sample, config, somatic_callers)
 
 			if copynumber_callers is not None:
@@ -2313,16 +2318,16 @@ if __name__ == "__main__" and True:
 	#run_pipelines(samples = "/home/upmc/Documents/Variant_Discovery_Pipeline/sample_list.tsv")
 	config_filename = os.path.join(PIPELINE_DIRECTORY, "0_config_files", "pipeline_project_options.txt")
 	caller_status_filename = os.path.join(PIPELINE_DIRECTORY, "0_config_files", "caller_status.tsv")
-	if True:
+	if False:
 		sample_filename = os.path.join(PIPELINE_DIRECTORY, "LMD.sample_list.STAD.2017-03-09.tsv")
 		somatic_callers = ['MuSE', 'Varscan', 'Strelka', 'Somaticsniper', 'Mutect']
 		copynumber_callers = ['varscan', 'cnvkit', 'freec']
 	else:
 		sample_filename = os.path.join(PIPELINE_DIRECTORY, "sample_list.tsv")
 		#sample_filename = os.path.join(PIPELINE_DIRECTORY, "tcga_esca_sample_list.adenocarcinoma.DELL.2017-02-09.tsv")
-		somatic_callers = ['muse']#'MuSE', 'Varscan', 'Strelka', 'Somaticsniper', 'Mutect2']
+		somatic_callers = ['somaticsniper']#'MuSE', 'Varscan', 'Strelka', 'Somaticsniper', 'Mutect2']
 		copynumber_callers = []
-	pipeline = GenomicsPipeline(sample_filename, config_filename, somatic_callers, copynumber_callers)
+	pipeline = GenomicsPipeline(sample_filename, config_filename, caller_status_filename, somatic_callers, copynumber_callers)
 else:
 	pass
 #3872
