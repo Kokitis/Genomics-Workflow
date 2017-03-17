@@ -19,6 +19,8 @@ if os.name == 'nt': #Windows
 	gdc_location = "C:\\Users\\Deitrickc\\Downloads\\Genomic Programs\\gdc-client"
 	gdc_program  = os.path.join(gdc_location, 'gdc-client.exe')
 	histology_filename = "C:\\Users\\Deitrickc\\Documents\\UPMC Files\\Projects\\Genome Instability Project\\Clinical Data\\histology_diagnoses.txt"
+	clinical_files = ["C:\\Users\\Deitrickc\\Documents\\UPMC Files\\Projects\\Genome Instability Project\\Clinical Data\\nationwidechildrens.org_clinical_patient_esca.tsv",
+					  "C:\\Users\\Deitrickc\\Documents\\UPMC Files\\Projects\\Genome Instability Project\\Clinical Data\\20140110_STAD_Clinical_Data_Blacklisted_Cases_Removed.tsv"]
 else:
 	histology_filename = os.path.join("/home/upmc/Documents/Variant_Discovery_Pipeline/", "0_config_files", "histology_diagnosis.txt")
 	gdc_location = "/home/upmc/Programs/gdc_data_transfer_tool"
@@ -57,7 +59,8 @@ class GDCAPI:
 
 		
 		self.histology_filename = histology_filename
-
+		self.clinical_files = clinical_files
+		self.clinical_data = self._load_clinical_files(self.clinical_files)
 		self.full_manifest = self._load_file_locations()
 		self.histology = self._load_histology()
 	def __call__(self, uuid, endpoint):
@@ -65,17 +68,39 @@ class GDCAPI:
 		return response
 
 	######################## API REQUEST METHODS #######################
+	def _load_clinical_files(self, clinical_files):
+		reader = list()
+		for filename in clinical_files:
+			reader += load_csv(filename)
+		return reader
 	def _load_histology(self):
-		if os.path.isfile(self.histology_filename):
-			with open(histology_filename, 'r') as file1:
-				reader = list(csv.reader(file1, delimiter = '\t'))
-			reader = [(i[0].lower(), i[1]) for i in reader]
-			reader = dict(reader)
-		else:
-			print("Failed to load the histology file.")
-			print("Location: ", self.histology_filename)
+		"""
+			Returns
+			-------
+				histology: dict<case_uuid: histology>
+		"""
+		try:
 			reader = dict()
-			#raise Error
+			for row in self.clinical_data:
+				uuid = row['bcr_patient_uuid']
+				if 'histologic_diagnosis' in row.keys():
+					histology = row['histologic_diagnosis']
+				elif 'histological_type' in row.keys():
+					histology = row['histological_type']
+				else:
+					histology = "Not Known"
+
+				reader[uuid] = histology
+		except:
+			if os.path.isfile(self.histology_filename):
+				reader = load_csv(self.histology_filename)
+				reader = [(i[0].lower(), i[1]) for i in reader]
+				reader = dict(reader)
+			else:
+				print("Failed to load the histology file.")
+				print("Location: ", self.histology_filename)
+				reader = dict()
+				#raise Error
 		return reader
 	def _load_file_locations(self):
 		self.full_manifest_file = "C:\\Users\\Deitrickc\\Documents\\UPMC Files\\Projects\\Genome Instability Project\\Data\\Sample Lists\\full_manifest.DELL_LMD.tsv"
@@ -409,8 +434,33 @@ class GDCAPI:
 		row = self.full_manifest.get(file_id, dict())
 		location = row.get('file_location', '')
 		return location
+	def _barcode_to_uuid(self, barcodes):
+		""" Converts a patient barcode or sample barcode into the corresponding uuid.
+		"""
+
+		if isinstance(barcodes, str):
+			barcodes = [barcodes]
+		ids = list()
+
+		barcode_type = 'case' if len(barcodes[0]) == 12 else 'sample'
+		if barcode_type == 'case':
+			uuids = [row['bcr_patient_uuid'] for row in self.clinical_data if row['bcr_patient_barcode'] in barcodes]
+		elif barcode_type == 'sample':
+			pass
+
+		return uuids
+
 	def generate_sample_list(self, case_ids, filename = None):
-		""" Generates a sample list from the passed case ids."""
+		""" Generates a sample list from the passed ids
+			Parameters
+			----------
+				ids: string
+					Either case ids for patient barcodes.
+		"""
+
+		if 'TCGA' in case_ids[0]:
+			case_ids = self._barcode_to_uuid(case_ids)
+
 		sample_list = list()
 		for index, case_id in enumerate(case_ids):
 			print("{0} of {1}: {2}".format(index+1, len(case_ids), case_id))
@@ -443,7 +493,12 @@ class GDCAPI:
 				print("Location: ", tumor_location)
 				raise Error
 			
-			exome_targets = "/home/upmc/Documents/Reference/Capture_Targets/SeqCap_EZ_Exome_v3_GRCh38_UCSCBrowser_capture_targets.bed"
+			#exome_targets = "/home/upmc/Documents/Reference/Capture_Targets/"
+			capture_targets_folder = "/home/upmc/Documents/Reference/Capture_Targets/"
+			if case_data['basic_info']['histology'] in {"Esophagus Adenocarcinoma, NOS", "Esophagus Squamous Cell Carcinoma"}:
+				exome_targets = os.path.join(capture_targets_folder, "SeqCap_EZ_Exome_v3_GRCh38_UCSCBrowser_capture_targets.bed")
+			else:
+				exome_targets = os.path.join(capture_targets_folder, "whole_exome_agilent_1.1_refseq_plus_3_boosters.targetIntervals.hg38.list")
 			sample = {
 				'CaseID':  case_data['case_id'],
 				'SampleID':  tumor.get('sample_barcode'),
@@ -460,12 +515,18 @@ class GDCAPI:
 			}
 			sample_list.append(sample)
 		sample_list = sorted(sample_list, key = lambda s: s['PatientID'])
+		truncated_sample_list = [i for i in sample_list if (i['NormalBAM'] != "" and i['TumorBAM'] != "")]
 
 		if filename is not None:
 			with open(filename, 'w', newline = "") as file1:
 				writer = csv.DictWriter(file1, delimiter = "\t", fieldnames = sorted(sample_list[0].keys()))
 				writer.writeheader()
 				writer.writerows(sample_list)
+			truncated_filename = os.path.splitext(filename)[0] + '.truncated.tsv'
+			with open(truncated_filename, 'w', newline = "") as file2:
+				writer = csv.DictWriter(file2, delimiter = "\t", fieldnames = sorted(truncated_sample_list[0].keys()))
+				writer.writeheader()
+				writer.writerows(truncated_sample_list)
 		return sample_list
 
 	def generate_manifest_file(self, ids, endpoint, filename = None, debug = False):
@@ -558,29 +619,69 @@ class GDCAPI:
 
 ############################ Compatability Methods ########################################
 _api = GDCAPI()
+"""
 def file_api(file_id):
 	response = _api(file_id, "files")
 	return response
 
 def case_api (case_id):
 	response = _api(case_id, "files")
+"""
 
 
 #Updated Version
-if __name__ == "__main__" and True:
-	case_id  = "6969fe5a-5993-48e5-95c5-c5c7d3d08205"
-	#file_id  = "2d4f1ce4-4613-403a-90ec-fd6a551b6487"
-	file_id  = "9e692097-1f84-4a25-ad73-50a5522db60e"
-	index_id = "4570dd4d-9234-4d37-b8d0-66d37594e3f1"
-	stomach_case_id = "00781a96-4068-427c-a9c5-584d167c3dea"
+isMain = __name__ == "__main__"
+if isMain:
+	if False:
+		case_id  = "6969fe5a-5993-48e5-95c5-c5c7d3d08205"
+		#file_id  = "2d4f1ce4-4613-403a-90ec-fd6a551b6487"
+		file_id  = "9e692097-1f84-4a25-ad73-50a5522db60e"
+		index_id = "4570dd4d-9234-4d37-b8d0-66d37594e3f1"
+		stomach_case_id = "00781a96-4068-427c-a9c5-584d167c3dea"
 
-	api = GDCAPI()
-	response = api(file_id, 'files')
-	pprint(response)
-	#pprint(case_api(case_id))
-	#pprint(case_api(case_id))
-
-
+		api = GDCAPI()
+		response = api(file_id, 'files')
+		pprint(response)
+		#pprint(case_api(case_id))
+		#pprint(case_api(case_id))
+	elif True:
+		barcodes = """TCGA-BR-6710-10A
+						TCGA-BR-6710-01A
+						TCGA-BR-6852-10A
+						TCGA-BR-6852-01A
+						TCGA-BR-7722-10A
+						TCGA-BR-7722-01A
+						TCGA-BR-7901-10A
+						TCGA-BR-7901-01A
+						TCGA-D7-6518-10A
+						TCGA-D7-6518-01A
+						TCGA-D7-6525-10A
+						TCGA-D7-6525-01A
+						TCGA-FP-7829-10A
+						TCGA-FP-7829-01A
+						TCGA-FP-8099-10A
+						TCGA-FP-8099-01A
+						TCGA-FP-8631-10A
+						TCGA-FP-8631-01A
+						TCGA-FP-A4BF-10A
+						TCGA-FP-A4BF-01A
+						TCGA-HF-7133-10A
+						TCGA-HF-7133-01A
+						TCGA-HF-7136-10A
+						TCGA-HF-7136-01A
+						TCGA-IN-7806-10A
+						TCGA-IN-7806-01A
+						TCGA-IN-7808-10A
+						TCGA-IN-7808-01A
+						TCGA-IN-8462-10A
+						TCGA-IN-8462-01A
+						TCGA-IN-8663-10A
+						TCGA-IN-8663-01A
+						TCGA-IP-7968-10A
+						TCGA-IP-7968-01A"""
+		barcodes = [i.strip() for i in barcodes.splitlines()]
+		barcodes = ['-'.join(i.split('-')[:-1]) for i in barcodes]
+		_api.generate_sample_list(barcodes, "C:\\Users\\Deitrickc\\Documents\\UPMC Files\\Projects\\DELL_GEJ_SAMPLE_LIST.tsv")
 
 print("Finished!")
 
