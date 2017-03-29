@@ -26,6 +26,7 @@ if os.name == 'nt': #Windows
 	local_file_api_filename = os.path.join("/home/upmc/Documents/Variant_Discovery_Pipeline/", "0_config_files", "local_file_api.json") #Path to a local copy of the file api
 	local_case_api_filename = os.path.join("/home/upmc/Documents/Variant_Discovery_Pipeline/", "0_config_files", "local_case_api.json") #Path to a local copy of the case api
 else:
+	clinical_files = []
 	histology_filename = os.path.join("/home/upmc/Documents/Variant_Discovery_Pipeline/", "0_config_files", "histology_diagnosis.txt")
 	gdc_location = "/home/upmc/Programs/gdc_data_transfer_tool"
 	local_file_api_filename = os.path.join("/home/upmc/Documents/Variant_Discovery_Pipeline/", "0_config_files", "local_file_api.json") #Path to a local copy of the file api
@@ -71,6 +72,27 @@ def getFileLocation(io, col = 'id'):
 	rows = [i for i in FULL_MANIFEST if i[col] == io]
 	return rows
 
+def barcodeToUuid(barcodes):
+	""" Converts a patient barcode or sample barcode into the corresponding uuid.
+	"""
+
+	if isinstance(barcodes, str):
+		barcodes = [barcodes]
+	ids = list()
+
+	barcode_type = 'case' if len(barcodes[0]) == 12 else 'sample'
+
+	clinical_data = list()
+	for fn in clinical_files:
+		clinical_data += loadCSV(fn)
+
+	if barcode_type == 'case':
+		uuids = [row['bcr_patient_uuid'] for row in clinical_data if row['bcr_patient_barcode'] in barcodes]
+	elif barcode_type == 'sample':
+		pass
+
+	return uuids
+
 class APIError(BaseException):
 	pass
 
@@ -79,8 +101,7 @@ class GDCAPI:
 
 		
 		self.histology_filename = histology_filename
-		self.clinical_files = clinical_files
-		self.clinical_data = self._load_clinical_files(self.clinical_files)
+
 		self.local_file_api, self.local_case_api = self.loadLocalApiFiles()
 		#self.full_manifest = self._load_file_locations()
 		self.histology = self._load_histology()
@@ -89,39 +110,22 @@ class GDCAPI:
 		return response
 
 	######################## API REQUEST METHODS #######################
-	def _load_clinical_files(self, clinical_files):
-		reader = list()
-		for filename in clinical_files:
-			reader += loadCSV(filename)
-		return reader
 	def _load_histology(self):
 		"""
 			Returns
 			-------
 				histology: dict<case_uuid: histology>
 		"""
-		try:
+		
+		if os.path.isfile(self.histology_filename):
+			reader = load_csv(self.histology_filename)
+			reader = [(i[0].lower(), i[1]) for i in reader]
+			reader = dict(reader)
+		else:
+			print("Failed to load the histology file.")
+			print("Location: ", self.histology_filename)
 			reader = dict()
-			for row in self.clinical_data:
-				uuid = row['bcr_patient_uuid']
-				if 'histologic_diagnosis' in row.keys():
-					histology = row['histologic_diagnosis']
-				elif 'histological_type' in row.keys():
-					histology = row['histological_type']
-				else:
-					histology = "Not Known"
-
-				reader[uuid] = histology
-		except:
-			if os.path.isfile(self.histology_filename):
-				reader = load_csv(self.histology_filename)
-				reader = [(i[0].lower(), i[1]) for i in reader]
-				reader = dict(reader)
-			else:
-				print("Failed to load the histology file.")
-				print("Location: ", self.histology_filename)
-				reader = dict()
-				#raise Error
+			#raise Error
 		return reader
 	def loadLocalApiFiles(self):
 		with open(local_file_api_filename, 'r') as file1:
@@ -473,21 +477,7 @@ class GDCAPI:
 		pprint(response.json())
 	##################### API USE CASE METHODS ##########################
 
-	def _barcode_to_uuid(self, barcodes):
-		""" Converts a patient barcode or sample barcode into the corresponding uuid.
-		"""
 
-		if isinstance(barcodes, str):
-			barcodes = [barcodes]
-		ids = list()
-
-		barcode_type = 'case' if len(barcodes[0]) == 12 else 'sample'
-		if barcode_type == 'case':
-			uuids = [row['bcr_patient_uuid'] for row in self.clinical_data if row['bcr_patient_barcode'] in barcodes]
-		elif barcode_type == 'sample':
-			pass
-
-		return uuids
 
 	def generate_sample_list(self, case_ids, filename = None):
 		""" Generates a sample list from the passed ids
@@ -498,7 +488,7 @@ class GDCAPI:
 		"""
 
 		if 'TCGA' in case_ids[0]:
-			case_ids = self._barcode_to_uuid(case_ids)
+			case_ids = self.BarcodeToUuid(case_ids)
 
 		sample_list = list()
 		for index, case_id in enumerate(case_ids):
