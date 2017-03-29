@@ -118,7 +118,9 @@ class GDCAPI:
 		"""
 		
 		if os.path.isfile(self.histology_filename):
-			reader = load_csv(self.histology_filename)
+			with open(self.histology_filename, 'r') as file1:
+				reader = list(csv.reader(file1, delimiter = '\t'))
+			#reader = loadCSV(self.histology_filename)
 			reader = [(i[0].lower(), i[1]) for i in reader]
 			reader = dict(reader)
 		else:

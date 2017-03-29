@@ -2318,7 +2318,7 @@ if __name__ == "__main__" and True:
 	#run_pipelines(samples = "/home/upmc/Documents/Variant_Discovery_Pipeline/sample_list.tsv")
 	config_filename = os.path.join(PIPELINE_DIRECTORY, "0_config_files", "pipeline_project_options.txt")
 	caller_status_filename = os.path.join(PIPELINE_DIRECTORY, "0_config_files", "caller_status.tsv")
-	if False:
+	if True:
 		sample_filename = os.path.join(PIPELINE_DIRECTORY, "LMD.sample_list.STAD.2017-03-09.tsv")
 		somatic_callers = ['MuSE', 'Varscan', 'Strelka', 'Somaticsniper', 'Mutect']
 		copynumber_callers = ['varscan', 'cnvkit', 'freec']
