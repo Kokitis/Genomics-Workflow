@@ -59,7 +59,6 @@ def _get_exome_targets(catalog_number):
 
 	return targets
 
-FULL_MANIFEST = loadCSV(file_locations_filename)
 def getFileLocation(io, col = 'id'):
 	""" Retrieves the physical location of a file from an annotated manifest file.
 		Parameters
@@ -69,7 +68,8 @@ def getFileLocation(io, col = 'id'):
 			col: {id, 'barcode', 'category', 'patient', 'sample type'}; default 'id'
 				The column of the manifest file to search in.
 	"""
-	rows = [i for i in FULL_MANIFEST if i[col] == io]
+	all_file_locations = loadCSV(file_locations_filename)
+	rows = [i for i in all_file_locations if i[col] == io]
 	return rows
 
 def barcodeToUuid(barcodes):
