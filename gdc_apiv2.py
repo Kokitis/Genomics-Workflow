@@ -21,14 +21,19 @@ if os.name == 'nt': #Windows
 	histology_filename = "C:\\Users\\Deitrickc\\Documents\\UPMC Files\\Projects\\Genome Instability Project\\Clinical Data\\histology_diagnoses.txt"
 	clinical_files = ["C:\\Users\\Deitrickc\\Documents\\UPMC Files\\Projects\\Genome Instability Project\\Clinical Data\\nationwidechildrens.org_clinical_patient_esca.tsv",
 					  "C:\\Users\\Deitrickc\\Documents\\UPMC Files\\Projects\\Genome Instability Project\\Clinical Data\\20140110_STAD_Clinical_Data_Blacklisted_Cases_Removed.tsv"]
+	#manifest file containing the locations of all downloaded files.
+	file_locations_filename = "C:\\Users\\Deitrickc\\Documents\\UPMC Files\\Projects\\Genome Instability Project\\Data\\Sample Lists\\full_manifest.DELL_LMD.tsv"
+	local_file_api_filename = os.path.join("/home/upmc/Documents/Variant_Discovery_Pipeline/", "0_config_files", "local_file_api.json") #Path to a local copy of the file api
+	local_case_api_filename = os.path.join("/home/upmc/Documents/Variant_Discovery_Pipeline/", "0_config_files", "local_case_api.json") #Path to a local copy of the case api
 else:
 	histology_filename = os.path.join("/home/upmc/Documents/Variant_Discovery_Pipeline/", "0_config_files", "histology_diagnosis.txt")
 	gdc_location = "/home/upmc/Programs/gdc_data_transfer_tool"
 	local_file_api_filename = os.path.join("/home/upmc/Documents/Variant_Discovery_Pipeline/", "0_config_files", "local_file_api.json") #Path to a local copy of the file api
 	local_case_api_filename = os.path.join("/home/upmc/Documents/Variant_Discovery_Pipeline/", "0_config_files", "local_case_api.json") #Path to a local copy of the case api
 	gdc_program  = os.path.join(gdc_location, 'gdc-client-2016-10-19')
+
 #user_token = os.path.join(gdc_location, 'tokens', max(list(os.listdir(os.path.join(gdc_location, "tokens")))))
-def load_csv(filename):
+def loadCSV(filename):
 	with open(filename, 'r') as file1:
 		reader = list(csv.DictReader(file1, delimiter = '\t'))
 	return reader
@@ -53,6 +58,21 @@ def _get_exome_targets(catalog_number):
 
 	return targets
 
+FULL_MANIFEST = loadCSV(file_locations_filename)
+def getFileLocation(io, col = 'id'):
+	""" Retrieves the physical location of a file from an annotated manifest file.
+		Parameters
+		---------
+			io: string
+				A file id, patient barcode, or other way of selecting rows from the manifest file.
+			col: {id, 'barcode', 'category', 'patient', 'sample type'}; default 'id'
+				The column of the manifest file to search in.
+	"""
+	rows = [i for i in FULL_MANIFEST if i[col] == io]
+	return rows
+
+class APIError(BaseException):
+	pass
 
 class GDCAPI:
 	def __init__(self):
@@ -61,7 +81,8 @@ class GDCAPI:
 		self.histology_filename = histology_filename
 		self.clinical_files = clinical_files
 		self.clinical_data = self._load_clinical_files(self.clinical_files)
-		self.full_manifest = self._load_file_locations()
+		self.local_file_api, self.local_case_api = self.loadLocalApiFiles()
+		#self.full_manifest = self._load_file_locations()
 		self.histology = self._load_histology()
 	def __call__(self, uuid, endpoint):
 		response = self.request(uuid, endpoint)
@@ -71,7 +92,7 @@ class GDCAPI:
 	def _load_clinical_files(self, clinical_files):
 		reader = list()
 		for filename in clinical_files:
-			reader += load_csv(filename)
+			reader += loadCSV(filename)
 		return reader
 	def _load_histology(self):
 		"""
@@ -102,16 +123,14 @@ class GDCAPI:
 				reader = dict()
 				#raise Error
 		return reader
-	def _load_file_locations(self):
-		self.full_manifest_file = "C:\\Users\\Deitrickc\\Documents\\UPMC Files\\Projects\\Genome Instability Project\\Data\\Sample Lists\\full_manifest.DELL_LMD.tsv"
-		if os.path.isfile(self.full_manifest_file):
-			with open(self.full_manifest_file, 'r') as file1:
-				reader = list(csv.DictReader(file1, delimiter = '\t'))
-			reader = {i['id']:i for i in reader}
-		else:
-			reader = dict()
-		
-		return reader
+	def loadLocalApiFiles(self):
+		with open(local_file_api_filename, 'r') as file1:
+			local_file_api = json.loads(file1.read())
+
+		with open(local_case_api_filename, 'r') as file2:
+			local_case_api = json.loads(file2.read())
+
+		return local_file_api, local_case_api
 	def request(self, uuid, endpoint):
 		""" Sends a request to the GDC API.
 			Parameters
@@ -410,6 +429,21 @@ class GDCAPI:
 		pass
 
 	def _request(self, uuid, endpoint, parameters, use_local = False):
+		if use_local:
+			try:
+				response = self._offlineRequest(uuid, endpoint)
+			except:
+				response = self._onlineRequest(uuid, endpoint, parameters)
+		else:
+			try:
+				response = self._onlineRequest(uuid, endpoint, parameters)
+			except:
+				response = self._offlineRequest(uuid, endpoint)
+
+		return response
+	
+
+	def _onlineRequest(self, uuid, endpoint, parameters):
 		url = 'https://gdc-api.nci.nih.gov/{endpoint}/{uuid}'.format(
 			endpoint = endpoint,
 			uuid = uuid)
@@ -422,6 +456,15 @@ class GDCAPI:
 		if 'data' in response:
 			response = response['data']
 		return response
+
+	def _offlineRequest(self, uuid, endpoint):
+		if endpoint == 'files':
+			response = self.local_file_api[uuid]
+		else:
+			response = self.local_case_api[uuid]
+
+		return response
+
 	def _raise_invalid_response_error(self, uuid, endpoint, response):
 		print("ERROR: The api returned an invalid response!")
 		print("\tEndpoint: ", endpoint)
@@ -429,11 +472,7 @@ class GDCAPI:
 		print("\tStatus Code: ", response.status_code)
 		pprint(response.json())
 	##################### API USE CASE METHODS ##########################
-	def get_file_location(self, file_id):
-		""" Retrieves the physical location of a file from an annotated manifest file. """
-		row = self.full_manifest.get(file_id, dict())
-		location = row.get('file_location', '')
-		return location
+
 	def _barcode_to_uuid(self, barcodes):
 		""" Converts a patient barcode or sample barcode into the corresponding uuid.
 		"""
