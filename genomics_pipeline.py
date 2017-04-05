@@ -18,6 +18,8 @@ now = datetime.datetime.now
 GLOBAL_START = now() #Used to log when a series of samples were run together
 
 PIPELINE_DIRECTORY = "/home/upmc/Documents/Variant_Discovery_Pipeline"
+CONSOLE_LOG_FILE = ""
+SAMPLE_LOG_FILE = ""
 #initial_working_directory = PIPELINE_DIRECTORY
 
 """Set up the LOGGER"""
