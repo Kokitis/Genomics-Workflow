@@ -21,7 +21,7 @@ GLOBAL_START = now() #Used to log when a series of samples were run together
 PIPELINE_DIRECTORY = "/home/upmc/Documents/Variant_Discovery_Pipeline"
 CONSOLE_LOG_FILE = ""
 SAMPLE_LOG_FILE = os.path.join(PIPELINE_DIRECTORY, "0_config_files", "sample_logV2.tsv")
-README_FILE = os.path.joni(PIPELINE_DIRECTORY, "0_readme_files", "readme.{0}.txt".format(now().isoformat()))
+README_FILE = os.path.join(PIPELINE_DIRECTORY, "0_readme_files", "readme.{0}.txt".format(now().isoformat()))
 #initial_working_directory = PIPELINE_DIRECTORY
 
 """Set up the LOGGER"""
@@ -1333,6 +1333,7 @@ class Pipeline:
 		pipeline_callers = self._getCallers(sample_callers)
 
 		for caller_name, caller in pipeline_callers:
+			print(caller_name)
 			callset = caller(sample, options)
 
 class SomaticPipeline(Pipeline):
@@ -1342,10 +1343,10 @@ class SomaticPipeline(Pipeline):
 			#'pon': Mutect_pon_detection,
 			#'gdc': GDC_somatic,
 			'muse': MuSE,
-			'mutect': Mutect2,
+			'mutect': MuTect2,
 			'somaticsniper': SomaticSniper,
 			'strelka': Strelka,
-			'varscan': varscan_somatic,
+			'varscan': Varscan,
 			'haplotypecaller': HaplotypeCaller,
 			'unifiedgenotyper': UnifiedGenotyper
 		}
@@ -1360,8 +1361,7 @@ class CopynumberPipeline(Pipeline):
 	@staticmethod
 	def _getCallers(callers):
 		available_callers = {
-			'gdc': GDC_copynumber,
-			'varscan': varscan_copynumber,
+			'varscan': VarscanCopynumber,
 			'cnvkit': CNVkit,
 			'freec': FREEC
 		}
@@ -1458,7 +1458,11 @@ class SampleFiles:
 
 
 class GenomicsPipeline:
-	def __init__(self, sample_filename, config_filename, caller_status_filename = None, somatic_callers = [], copynumber_callers = []):
+	def __init__(self, sample_filename, config_filename, caller_status_filename = None, somatic_callers = [], copynumber_callers = [], parser = None):
+		print("GenomicsPipeline()")
+		print("Somatic Callers: ", ', '.join(somatic_callers))
+		print("Copynumber Callers: ", ', '.join(copynumber_callers))
+		self.parser = parser
 		somatic_callers = [i.lower() for i in somatic_callers]
 		copynumber_callers = [i.lower() for i in copynumber_callers]
 
@@ -1631,6 +1635,12 @@ class GenomicsPipeline:
 		print("#"*180)
 		print("#"*90 + sample['PatientID'] + '#'*90)
 		print("#"*180)
+
+		if self.parser.debug:
+			print("PatientID: ", sample['PatientID'])
+			print("\tSomatic Callers: ", somatic_callers)
+			print("\tCopynumber Callers: ", copynumber_callers)
+
 		sample_start = now()
 		self._make_patient_folders(sample, config)
 		sample_caller_status = caller_status.get(sample['PatientID'], dict())
@@ -1651,18 +1661,25 @@ class GenomicsPipeline:
 			message = "{0}: GenomicsPipeline.run_sample: The BAM files could not be loaded ({1})".format(sample['PatientID'], exception)
 			print(message)
 			LOGGER.critical(message)
+		if self.parser.debug:
+			print("File Status: ", file_status)
 
 
 
 		if file_status:
-			if somatic_callers is not None:
+			if not self.parser.ignore_caller_status or self.parser.debug:
 				somatic_callers = [i for i in somatic_callers if not sample_caller_status.get(i, False)]
-				somatic_pipeline = SomaticPipeline(sample, config, somatic_callers)
+			somatic_pipeline = SomaticPipeline(sample, config, somatic_callers)
+			if self.parser.debug:
+				print("Somatic Pipeline: ", type(somatic_pipeline))
+				print("\t\tSomatic Callers: ", somatic_callers)
 
-			if copynumber_callers is not None:
-
-				copynumber_pipeline = CopynumberPipeline(sample, config, copynumber_callers)
-
+			if not self.parser.ignore_caller_status or self.parser.debug:
+				copynumber_callers = [i for i in somatic_callers if not sample_caller_status.get(i, False)]
+			copynumber_pipeline = CopynumberPipeline(sample, config, copynumber_callers)
+			if self.parser.debug:
+				print("Copynumber Pipeline: ", type(copynumber_pipeline))
+				print("Copynumber Callers: ", copynumber_callers)
 		else:
 			logging.critical("{0}: The BAM files are invalid!".format(sample['PatientID']))
 			print("\tThe BAM files did not download correctly!")
@@ -1705,8 +1722,14 @@ def getCMDArgumentParser():
 		help='the sample list')
 
 	parser.add_argument('-d' ,"--debug",
+		dest = 'debug',
 		action = 'store_true',
 		help='debug the pipeline using default settings' + show_default)
+
+	parser.add_argument('-i', "--ignore-caller-status",
+		dest = "ignore_caller_status",
+		action = 'store_false',
+		help = "Ignore the caller status file.")
 
 	return parser
 
@@ -1715,22 +1738,21 @@ API = gdc_apiv2.GDCAPI()
 
 if __name__ == "__main__":
 
-	cmd_parser = getCMDArgumentParser()
-	cmd_parser.parse_args()
+	CMD_PARSER = getCMDArgumentParser().parse_args()
 
 	config_filename 		= os.path.join(PIPELINE_DIRECTORY, "0_config_files", "pipeline_project_options.txt")
 	caller_status_filename 	= os.path.join(PIPELINE_DIRECTORY, "0_config_files", "caller_status.tsv")
 	
-	if cmd_parser.debug:
+	if CMD_PARSER.debug:
 		sample_filename = os.path.join(PIPELINE_DIRECTORY, "sample_list.tsv")
-		somatic_callers = []
+		somatic_callers = ['MuSE', 'Varscan', 'Strelka', 'SomaticSniper', 'Mutect2']
 		copynumber_callers = []
 	else:
-		sample_filename = cmd_parser.sample_list
+		sample_filename = CMD_PARSER.sample_list
 		somatic_callers = ['MuSE', 'Varscan', 'Strelka', 'Somaticsniper', 'Mutect']
 		copynumber_callers = ['varscan', 'cnvkit', 'freec']	
 
-	pipeline = GenomicsPipeline(sample_filename, config_filename, caller_status_filename, somatic_callers, copynumber_callers)
+	pipeline = GenomicsPipeline(sample_filename, config_filename, caller_status_filename, somatic_callers, copynumber_callers, parser = CMD_PARSER)
 else:
 	pass
 #3872

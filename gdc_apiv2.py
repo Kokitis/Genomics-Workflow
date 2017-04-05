@@ -675,46 +675,7 @@ if isMain:
 		pprint(response)
 		#pprint(case_api(case_id))
 		#pprint(case_api(case_id))
-	elif True:
-		barcodes = """TCGA-BR-6710-10A
-						TCGA-BR-6710-01A
-						TCGA-BR-6852-10A
-						TCGA-BR-6852-01A
-						TCGA-BR-7722-10A
-						TCGA-BR-7722-01A
-						TCGA-BR-7901-10A
-						TCGA-BR-7901-01A
-						TCGA-D7-6518-10A
-						TCGA-D7-6518-01A
-						TCGA-D7-6525-10A
-						TCGA-D7-6525-01A
-						TCGA-FP-7829-10A
-						TCGA-FP-7829-01A
-						TCGA-FP-8099-10A
-						TCGA-FP-8099-01A
-						TCGA-FP-8631-10A
-						TCGA-FP-8631-01A
-						TCGA-FP-A4BF-10A
-						TCGA-FP-A4BF-01A
-						TCGA-HF-7133-10A
-						TCGA-HF-7133-01A
-						TCGA-HF-7136-10A
-						TCGA-HF-7136-01A
-						TCGA-IN-7806-10A
-						TCGA-IN-7806-01A
-						TCGA-IN-7808-10A
-						TCGA-IN-7808-01A
-						TCGA-IN-8462-10A
-						TCGA-IN-8462-01A
-						TCGA-IN-8663-10A
-						TCGA-IN-8663-01A
-						TCGA-IP-7968-10A
-						TCGA-IP-7968-01A"""
-		barcodes = [i.strip() for i in barcodes.splitlines()]
-		barcodes = ['-'.join(i.split('-')[:-1]) for i in barcodes]
-		_api.generate_sample_list(barcodes, "C:\\Users\\Deitrickc\\Documents\\UPMC Files\\Projects\\DELL_GEJ_SAMPLE_LIST.tsv")
 
-print("Finished!")
 
 
 
