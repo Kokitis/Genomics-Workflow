@@ -68,8 +68,13 @@ def getFileLocation(io, col = 'id'):
 			col: {id, 'barcode', 'category', 'patient', 'sample type'}; default 'id'
 				The column of the manifest file to search in.
 	"""
-	all_file_locations = loadCSV(file_locations_filename)
+	all_file_locations, all_file_locations_columns = loadCSV(file_locations_filename, True)
 	rows = [i for i in all_file_locations if i[col] == io]
+
+	if len(rows) == 1:
+		rows = rows[0]
+	elif len(rows) == 0:
+		rows = {c: "" for c in all_file_locations_columns}
 	return rows
 
 def barcodeToUuid(barcodes):
