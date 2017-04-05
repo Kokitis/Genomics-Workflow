@@ -2,10 +2,11 @@ import csv
 import logging
 import datetime
 import os
+import hashlib
 import shutil
 import isodate
 #import gdc_api
-import gdc_apiv2
+import gdc_api
 import subprocess
 import math
 import configparser
@@ -124,6 +125,14 @@ def Terminal(command, label = None, show_output = False, timeout = None):
 			console_file.write(output + '\n\n')
 
 	return process
+def readTSV(filename, headers = False):
+	with open(filename, 'r') as file1:
+		reader = csv.DictReader(file1, delimiter = '\t')
+		fieldnames = reader.fieldnames
+		reader = list(reader)
+
+	if headers: return reader, fieldnames
+	else:       return reader
 
 #----------------------------------------------------------------------------------------------------
 #------------------------------------- Variant Caller Pipeline --------------------------------------
@@ -1375,103 +1384,94 @@ class CopynumberPipeline(Pipeline):
 #----------------------------------------------------------------------------------------------------
 #--------------------------------------------- Main -------------------------------------------------
 #----------------------------------------------------------------------------------------------------
-class SampleFiles:
-	def __init__(self, sample, config, normal_api, tumor_api, normal_only = False):
-		import hashlib
+class SampleBAMFiles:
+	""" A class for locating and validating the BAM files for each sample.
+	"""
+	def __init__(self, sample, config, verify_md5sum = False, DEBUG = False):
+		"""
+		"""
+		self.DEBUG = DEBUG
+		sample['NormalBAM'] = self._fetchFilename(sample.get('NormalBAM'), sample['NormalUUID'])
+		sample['TumorBAM'] = self._fetchFilename(sample.get('TumorBAM'), sample['SampleUUID'])
 
-		#Appended to the beginning of the filename
-		self.sample = sample
-		self.normal_only = normal_only
-		print("Finding NormalBAM")
-
-
-		if 'NormalBAM' not in sample.keys():
-			self.sample['NormalBAM'] = self._fetch_file(sample, config, normal_api)['path']
-		
-		if not self.normal_only and 'TumorBAM' not in sample.keys():
-			self.sample['TumorBAM'] = self._fetch_file(sample, config, tumor_api)['path']
-		
-
-		self.status = self.verify_files(self.sample, normal_api, tumor_api)
-		#self.status = True
-		#print("SAMPLEFILES STATUS MANUALLY SET FOR TESTING PURPOSES!")
-		#self.status = True
-
-	def _fetchFiles(self, sample, config, file_data):
-		
-		bam_folder = config['Pipeline Options']['bam folder']
-		file_id = file_data['basic_info']['file_id']
-		file_name= file_data['basic_info']['file_name']
-		#source = os.path.join(PIPELINE_DIRECTORY, file_id, file_name) #File is automatically downloaded to here
-		
-		bam_file = os.path.join(bam_folder, file_id, file_name)
-
-
-		_file_already_exists_and_is_valid = self._verify_file(bam_file, file_data['md5sum'])
-
-		if not _file_already_exists_and_is_valid:
-			print("\t\tDownloading ", file_id)
-			response = gdc_api.download_file(file_id, output_folder, basename = None)
+		if verify_md5sum:
+			normal_md5sum = API(sample['NormalUUID'], 'files')
+			tumor_md5sum = API(sample['SampleUUID'], 'files')
 		else:
-			response = {
-				'path': bam_file,
-				'output folder': os.path.dirname(bam_file),
-				'status': True
-			}
-			print("\t\tThe file already exists and is valid")
+			normal_md5sum = None
+			tumor_md5sum = None
 
-		return response
-	
+		normal_file_status = self.verifyFile(sample['NormalBAM'], normal_md5sum)
+		tumor_file_status  = self.verifyFile(sample['TumorBAM'], tumor_md5sum)
+
+		if self.DEBUG:
+			self.status = True
+		else:
+			self.status = normal_file_status and tumor_file_status
+
+	def _fetchFilename(self, filename, file_id):
+		"""
+			Parameters
+			----------
+				filename: string [PATH]
+					Path to a BAM file. if the filename is None or "", the program will
+					attempt to locate the file on the current computer.
+				file_id: string
+					UUID of the file.
+				options
+		"""
+		if filename is None or not os.path.exists(filename):
+			filename = gdc_api.getFileLocation(file_id)['file_location']
+
+		return filename
+
 	@staticmethod
-	def _verify_file(filename, expected_md5sum):
+	def _verifyFile(filename, expected_md5sum):
 		""" Verifies a single file
-		def generate_file_md5(filename, blocksize=2**20):
+			If expected_md5sum is None, the program will skip checking it.
 		"""
 		file_exists = os.path.isfile(filename)
-		if file_exists:
+		if file_exists and expected_md5sum is not None:
 			file_md5sum = generate_file_md5(filename)
-		else: file_md5sum = False
+			file_md5sum_status = file_md5sum == expected_md5sum
+		else: file_md5sum_status = True
 
-		file_is_valid = file_exists and (file_md5sum == expected_md5sum)
-		if False:
+		file_is_valid = file_exists and file_md5sum_status
+		if self.DEBUG:
 			print("\t\tExpected File: ", filename)
 			print("\t\tFile Exists: ", file_exists)
 			print("\t\tExpected md5sum: ", expected_md5sum)
 			print("\t\tFile md5sum: ", file_md5sum)
 			print("\t\tFile is Valid: ", file_is_valid)
 
-		if 'chr1' in filename:
-			file_is_valid = True
-
 		return file_is_valid
 
-	def verify_files(self, sample, normal_api, tumor_api):
-		""" Verifies that both the normal and tumor bams are valid and completly downloaded.
-		"""
-		normal_file_valid = self._verify_file(sample['NormalBAM'], normal_api['md5sum'])
-		print("\t\tThe Normal BAM file {0} verified.".format('was' if normal_file_valid else 'was not'))
-		
-		tumor_file_valid = self._verify_file(sample['TumorBAM'], tumor_api['md5sum']) or self.normal_only
-		if not self.normal_only:
-			print("\t\tThe Tumor BAM file {0} verified.".format('was' if tumor_file_valid else 'was not'))
-		return normal_file_valid and tumor_file_valid
-
-
 class GenomicsPipeline:
-	def __init__(self, sample_filename, config_filename, caller_status_filename = None, somatic_callers = [], copynumber_callers = [], parser = None):
-		print("GenomicsPipeline()")
-		print("Somatic Callers: ", ', '.join(somatic_callers))
-		print("Copynumber Callers: ", ', '.join(copynumber_callers))
-		self.parser = parser
-		somatic_callers = [i.lower() for i in somatic_callers]
-		copynumber_callers = [i.lower() for i in copynumber_callers]
+	def __init__(self, **kwargs):
+		"""
+			Required Arguments
+			------------------
+				sample_list
+			Optional Arguments
+			------------------
+				somatic
+				copynumber
+				caller_status_filename
+				config_filename
+		"""
+		if parser.debug:
+			print("GenomicsPipeline")
+			for k, v in kwargs.items(): print('\t', k, '\t', v)
 
-		pipeline_files = self._load_files(sample_filename, config_filename, caller_status_filename)
-		sample_list = pipeline_files['samples']
-		config = pipeline_files['options']
-		caller_status = pipeline_files['caller status']
-		#sample_list, config= self._load_files(sample_filename, config_filename)
-		
+
+		self.parser = parser
+		#Parse the provided arguments
+		somatic_callers = [i.lower() for i in kwargs.get("copynumber", [])]
+		copynumber_callers = [i.lower() for i in kwargs.get("somatic", [])]
+		config_filename = kwargs.get('config_filename', os.path.join(PIPELINE_DIRECTORY, "0_config_files", "pipeline_project_options.txt"))
+		caller_status_filename = kwargs.get('caller_status_filename', os.path.join(PIPELINE_DIRECTORY, "0_config_files", "caller_status.tsv"))
+
+		sample_list, config = self._loadPipelineConfiguration(sample_filename, config_filename)		
 		
 		LOGGER.info("Somatic Callers: " + ', '.join(somatic_callers))
 		LOGGER.info("Copynumber Callers: " + ', '.join(copynumber_callers))
@@ -1480,85 +1480,46 @@ class GenomicsPipeline:
 		for index, sample in enumerate(sample_list):
 			print("({0}/{1}) {2}\t{3}".format(index+1, len(sample_list), sample['PatientID'], now().isoformat()), flush = True)
 
-			use_this_sample = self._use_sample(sample)
+			sample_status = self.runSample(sample, config, somatic_callers, copynumber_callers, caller_status)
 
-			if use_this_sample['status']:
-				LOGGER.info("Analyzing {0}".format(sample['PatientID']))
-				sample_status = self.run_sample(sample, config, somatic_callers, copynumber_callers, caller_status)
-			else:
-				if use_this_sample['manual']: use_this_sample_message = 'Manually Skipped'
-				elif use_this_sample['completed']: use_this_sample_message = 'Already Analyzed'
-				elif use_this_sample['targets']: use_this_sample_message = 'Invalid Targets File: {0}'.format(sample['ExomeTargets'])
-				else:
-					use_this_sample_message = 'Unknown Error'
-				message = "Skipped sample {0} ({1}).".format(sample['PatientID'], use_this_sample_message)
-				print(message)
-				LOGGER.info(message)
 
 
 	@staticmethod
-	def _load_files(sample_filename, config_filename, caller_status_filename):
-		
-		with open(sample_filename, 'r') as samplefile:
-			sample_list = list(csv.DictReader(samplefile, delimiter = '\t'))
+	def _loadPipelineConfiguration(sample_filename, config_filename, caller_status_filename):
+		if not os.path.isfile(sample_filename):
+			message = "The sample list does not exists at " + sample_filename
+		elif not os.path.isfile(config_filename):
+			message = "The config file does not exist at " + config_filename
+		else:
+			message = None
+		if message is not None:
+			raise FileNotFoundError(message)
+
+		sample_list = readTSV(sample_filename)
 
 		#----------------------------------------Process Config ------------------------------------------
 		config = configparser.ConfigParser()
 		config.read(config_filename)
 		
-		if caller_status_filename is not None and os.path.isfile(caller_status_filename):
-			with open(caller_status_filename, 'r') as file1:
-				caller_status_file = list(csv.DictReader(file1, delimiter = '\t'))
-			caller_status = dict()
-			for row in caller_status_file:
-				if 'strelka' not in row.keys():
-					row['strelka'] = row.get('strelka-indel', False) and row.get('strelka-snv', False)
-				if 'varscan' not in row.keys():
-					row['varscan'] = row.get('varscan-indel', False) and row.get('varscan-snv', False)
-				for caller in ['muse', 'mutect', 'somaticsniper', 'strelka', 'varscan']:
-					if not isinstance(row[caller], bool):
-						row[caller] = row[caller] == 'True'
-				caller_status[row['PatientID']] = row
-
-		else:
-			caller_status = dict()
-		
-		#pprint(caller_status)
-		response = {
-			'samples': sample_list,
-			'options': config,
-			'caller status': caller_status
-		}
-
-		#completed_samples = config['General Options']['completed sample log']
-
-		#spf = config['Pipeline Options']['somatic pipeline folder']
-
-		#is_empty = lambda p: len( list( os.listdir( os.path.join(spf, p) ) ) ) == 0
-
-		return response
+		return sample_list, config
 	
-	def _get_file_info(self, sample):
-		normal_info = API(sample['NormalUUID'], 'files')
-		tumor_info  = API(sample['SampleUUID'], 'files')
-		return normal_info, tumor_info
 	@staticmethod
-	def _make_patient_folders(sample, options):
+	def _makePatientFolders(patientID, options):
 
 		snv_folder = options['Pipeline Options']['somatic pipeline folder']
 		cnv_folder = options['Pipeline Options']['copynumber pipeline folder']
 		temp_folder= options['Pipeline Options']['temporary folder']
 
-		snv_folder = os.path.join(snv_folder, sample['PatientID'])
-		cnv_folder = os.path.join(cnv_folder, sample['PatientID'])
-		temp_folder = os.path.join(temp_folder, sample['PatientID'])
+		snv_folder = os.path.join(snv_folder,PatientID)
+		cnv_folder = os.path.join(cnv_folder, PatientID)
+		temp_folder = os.path.join(temp_folder, PatientID)
 
-		if not os.path.isdir(snv_folder): os.mkdir(snv_folder)
-		if not os.path.isdir(cnv_folder): os.mkdir(cnv_folder)
-		if not os.path.isdir(temp_folder): os.mkdir(temp_folder)
+		checkdir(snv_folder)
+		checkdir(cnv_folder)
+		checkdir(temp_folder)
 
 	@staticmethod
-	def _use_sample(sample, callers = []):
+	def _useSample(sample):
 		use_value = sample.get('Use', True)
 
 		if isinstance(use_value, str): use_value = use_value.lower()
@@ -1571,15 +1532,14 @@ class GenomicsPipeline:
 
 
 
-		use = {
+		use_status = {
 			'status': not (manually_skipped or already_completed or invalid_targets),
 			'manual': manually_skipped,
 			'completed': already_completed,
-			'targets': invalid_targets,
-			'callers': []
+			'targets': invalid_targets
 		}
 
-		return use
+		return use_status
 
 	def generate_readme(self, options):
 		readmefile = "readme.txt"
@@ -1630,8 +1590,14 @@ class GenomicsPipeline:
 			for line in general_notes + reference_files + global_parameter_values:
 				file1.write(line + '\n')
 	
+	def _getSampleCompletedCallers(self, sample):
 
-	def run_sample(self, sample, config, somatic_callers, copynumber_callers, caller_status):
+		if os.path.exists(self.caller_status_filename):
+			pass
+		else:
+			pass
+		return []
+	def runSample(self, sample, config, somatic_callers, copynumber_callers):
 		print("#"*180)
 		print("#"*90 + sample['PatientID'] + '#'*90)
 		print("#"*180)
@@ -1642,15 +1608,17 @@ class GenomicsPipeline:
 			print("\tCopynumber Callers: ", copynumber_callers)
 
 		sample_start = now()
-		self._make_patient_folders(sample, config)
-		sample_caller_status = caller_status.get(sample['PatientID'], dict())
-		normal_only = all(c == 'pon' for c in (somatic_callers + copynumber_callers))
+		
+		use_this_sample = self._useSample(sample)['status']
+		sample_caller_status = self._getSampleCompletedCallers(sample)
 
-		normal_file_api, tumor_file_api = self._get_file_info(sample)
+		self._makePatientFolders(sample, config)
+
+		#normal_file_api, tumor_file_api = self._get_file_info(sample)
 			
 		#--------------------------- Download and verify the BAM files ---------------------------------
 		try:
-			prepared_files = SampleFiles(sample, config, normal_file_api, tumor_file_api, normal_only)
+			prepared_files = SampleBAMFiles(sample, config, DEBUG = self.parser.debug)
 			file_status = prepared_files.status
 			if file_status:
 				LOGGER.info("{0}: The BAM files exist and are valid. NormalBAM={1}. TumorBAM={2}".format(sample['PatientID'],sample['NormalBAM'], sample['TumorBAM']))
@@ -1658,24 +1626,25 @@ class GenomicsPipeline:
 				LOGGER.error("{0}: The BAM files are invalid! NormalBAM={1}. TumorBAM={2}".format(sample['PatientID'],sample['NormalBAM'], sample['TumorBAM']))
 		except Exception as exception:
 			file_status = False
-			message = "{0}: GenomicsPipeline.run_sample: The BAM files could not be loaded ({1})".format(sample['PatientID'], exception)
+			message = "{0}: GenomicsPipeline.run_sample: The BAM files could not be loaded ({1})".format(sample['PatientID'], str(exception))
 			print(message)
 			LOGGER.critical(message)
+
 		if self.parser.debug:
-			print("File Status: ", file_status)
+			print("\tFile Status: ", file_status)
 
 
 
 		if file_status:
 			if not self.parser.ignore_caller_status or self.parser.debug:
-				somatic_callers = [i for i in somatic_callers if not sample_caller_status.get(i, False)]
+				somatic_callers = [i for i in somatic_callers if i not in sample_completed_callers]
 			somatic_pipeline = SomaticPipeline(sample, config, somatic_callers)
 			if self.parser.debug:
 				print("Somatic Pipeline: ", type(somatic_pipeline))
 				print("\t\tSomatic Callers: ", somatic_callers)
 
 			if not self.parser.ignore_caller_status or self.parser.debug:
-				copynumber_callers = [i for i in somatic_callers if not sample_caller_status.get(i, False)]
+				copynumber_callers = [i for i in somatic_callers if i not in sample_completed_callers]
 			copynumber_pipeline = CopynumberPipeline(sample, config, copynumber_callers)
 			if self.parser.debug:
 				print("Copynumber Pipeline: ", type(copynumber_pipeline))
@@ -1701,9 +1670,6 @@ class GenomicsPipeline:
 			'Status':	  file_status,
 			'Commands':   "Genomics Pipeline({0})".format(sample['PatientID'])
 		}
-		#csv_log(sample_log)
-
-		#mark the sample as completed.
 
 		return file_status
 
@@ -1734,7 +1700,7 @@ def getCMDArgumentParser():
 	return parser
 
 LOGGER = configurePipelineLogger()
-API = gdc_apiv2.GDCAPI()
+API = gdc_api.GDCAPI()
 
 if __name__ == "__main__":
 
