@@ -1508,8 +1508,6 @@ def varscan_copynumber(sample, options):
 			#'--recenter-down':			#Recenter data around an adjusted baseline < 0 [0]
 	}
 
-
-
 	varscan = options['Programs']['Varscan']
 	samtools= options['Programs']['samtools']
 
