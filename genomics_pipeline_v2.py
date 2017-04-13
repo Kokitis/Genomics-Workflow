@@ -124,7 +124,7 @@ def Terminal(command, label = None, filename = None):
 	label = "{0} {1}".format(label if label is not None else "", now().isoformat())
 	terminal_label  = '--'*15 + label + '--'*15 + '\n'
 	terminal_label += '..'*40 + '\n'
-	terminal_label += command + '\n'
+	terminal_label += " ".join(shlex.split(command)) + '\n'
 	terminal_label += '..'*40 + '\n'
 	terminal_label += '--'*40 + '\n'
 
@@ -242,13 +242,13 @@ class Caller:
 		""" Generates pileup files. If single is True, only
 			one file will be generated.
 		"""
-		output_file = os.path.join(self.temp_folder, bam_name + '.mpileup')
+		output_file = os.path.join(self.temp_folder, 'varscan.{0}.mpileup'.format(bam_name))
 		pileup_command = "samtools mpileup -q 1 -B -f {reference} {sample} > {output}".format(
 			reference = self.reference,
 			sample = bam_file,
 			output = output_file)
-
-		self.runCallerCommand(pileup_command, output_file)
+		label = "Generate MPileup File"
+		self.runCallerCommand(pileup_command, label, output_file)
 		return output_file
 
 	def runBackwardsCompatibility(self):
@@ -638,8 +638,8 @@ class Varscan(Caller):
 	def runCallerWorkflow(self, sample, options):
 		#super().__init__(self, sample, options, 'Varscan')
 
-		self.raw_snps = self.prefix + '.raw.snp.vcf'
-		self.raw_indels=self.prefix + '.raw.indel.vcf'
+		self.raw_snps 	= self.prefix + '.snp.vcf'
+		self.raw_indels = self.prefix + '.indel.vcf'
 
 		self.somatic_hc = self.prefix + '.snp.Somatic.hc'
 		self.somatic_lc = self.prefix + '.snp.Somatic.lc'
@@ -648,10 +648,10 @@ class Varscan(Caller):
 		self.loh 		= self.prefix + '.snp.LOH'
 		self.loh_hc 	= self.prefix + '.snp.LOH.hc'
 
-		normal_pileup 	= self.generatePileup(sample['NormalBAM'], sample['NormalID'])
-		tumor_pileup 	= self.generatePileup(sample['TumorBAM'], sample['SampleID'])
-
-		self.runVarscan(normal_pileup, tumor_pileup)
+		#normal_pileup 	= self.generatePileup(sample['NormalBAM'], sample['NormalID'])
+		#tumor_pileup 	= self.generatePileup(sample['TumorBAM'], sample['SampleID'])
+		pileup_file = self.generateSinglePileup(sample)
+		self.runSingleVariantDiscovery(pileup_file)
 
 		processed_variants = self.postProcessing()
 		
@@ -665,8 +665,35 @@ class Varscan(Caller):
 			self.loh,
 			self.loh_hc]
 		self.final_output = self.somatic_hc
-
-	def runVarscan(self, normal_pileup, tumor_pileup):
+	def generateSinglePileup(self, sample):
+		pileup = os.path.join(self.temp_folder, "mpileup_test_file")
+		command = """samtools mpileup -f {reference} -q 1 -B {normal} {tumor} > {pileup}""".format(
+			reference = self.reference,
+			normal = sample['NormalBAM'],
+			tumor = sample['TumorBAM'],
+			pileup = pileup)
+		self.runCallerCommand(command, "GenerateSinglePileup", pileup)
+		return pileup
+	def runSingleVariantDiscovery(self, pileup):
+		expected_output = [self.raw_snps, self.raw_indels]
+		command = """java -jar {program} somatic {pileup} {output} \
+			--mpileup 1 \
+			--min-coverage 8 \
+			--min-coverage-normal 8 \
+			--min-coverage-tumor 6 \
+			--min-var-freq 0.10 \
+			--min-freq-for-hom 0.75 \
+			--normal-purity 1.0 \
+			--tumor-purity 1.00 \
+			--p-value 0.99 \
+			--somatic-p-value 0.05 \
+			--strand-filter 0 \
+			--output-vcf""".format(
+				program = self.program,
+				pileup = pileup,
+				output = self.prefix)
+		self.runCallerCommand(command, "RunSingleVariantDiscovery", expected_output)
+	def runDoubleVariantDiscovery(self, normal_pileup, tumor_pileup):
 		command = "java {memory} -jar {varscan} somatic {normal} {tumor} --output-snp {snp} --output-indel {indel} --output-vcf 1".format(
 			varscan = self.program,
 			memory 	= self.max_memory_usage,
@@ -676,19 +703,21 @@ class Varscan(Caller):
 			indel 	= self.raw_indels,
 			mc 		= self.min_coverage)
 		output_files = [self.raw_snps, self.raw_indels]
-		status = self.runCallerCommand(command, output_files)
+		label = "Variant Discovery"
+		status = self.runCallerCommand(command, label, output_files)
 
 		return status
 
 	def postProcessing(self):
 		expected_output = [self.somatic_hc, self.somatic_lc, self.germline, self.germline_hc, self.loh, self.loh_hc]
 
-		process_command = "java {memory} -jar {varscan} processSomatic {vcf}"
+		process_command = "java -jar {varscan} processSomatic {vcf} --min-tumor-freq 0.10 --max-normal-freq 0.05 --p-value 0.07"
 		process_command = process_command.format(
 			memory  = self.max_memory_usage,
 			varscan = self.program,
 			vcf  	= self.raw_snps)
-		status = self.runCallerCommand(process_command, expected_output)
+		label = "Varscan Postprocessing"
+		status = self.runCallerCommand(process_command, label, expected_output)
 		return status
 
 class HaplotypeCaller(Caller):
@@ -1440,88 +1469,6 @@ class FREEC(Caller):
 #----------------------------------------------------------------------------------------------------
 #------------------------------------------ Pipelines -----------------------------------------------
 #----------------------------------------------------------------------------------------------------
-class PipelineOBS:
-	def __init__(self, sample, options, callers):
-		self.pipeline_name = type(self).__name__
-		print("   Running ", self.pipeline_name)
-		#LOGGER.info("{0}: Running {1}".format(sample['PatientID'], self.pipeline_name))
-		self.start = now()
-		self.caller_logs = list()
-		#self.pipeline_folder = self._get_pipeline_folder(options)
-
-		
-		callers = self._get_callers(callers) #Dictionary of caller methods
-
-		self._run_pipeline(sample, options, callers)
-		
-		self.stop = now()
-
-		self._update_log(sample, options, callers, self.start, self.stop)
-
-	
-	@staticmethod
-	def _get_callers():
-		return []
-
-	def _run_caller(self, caller, sample, options):
-		start = now()
-		sample, caller_log = run_program(caller, sample, options)
-		self.caller_logs.append(caller_log)
-		
-		stop = now()
-		duration = stop - start
-
-
-		
-
-		csv_log([caller_log])
-		return sample
-
-	def _run_pipeline(self, sample, options, callers):
-		
-		for caller_name, caller in callers.items():
-			pstart = now()
-			sample = self._run_caller(caller, sample, options)
-			pstop = now()
-			duration = pstop - pstart
-			LOGGER.info("{0}: Ran {1} in {2}".format(sample['PatientID'], caller_name, duration))
-		
-	def _update_log(self, sample, options, callers, start, stop):
-		intermediate_files = list()
-		input_files = list()
-		output_files = list()
-		for caller_log in self.caller_logs:
-			intermediate_files += caller_log.get('Intermediate Files', [])
-			input_files += caller_log.get('Input Files', [])
-			output_files += caller_log.get('Output Files', [])
-
-		intermediate_files = sorted(set(intermediate_files))
-		input_files = sorted(set(input_files))
-		output_files = sorted(set(output_files))
-		try:
-			input_size = sum([getsize(i) for i in input_files])
-			output_size = sum([getsize(i) for i in output_files])
-		except:
-			input_size = output_size = 0
-		status = True
-		pipeline_log = {
-			'PatientID':  sample['PatientID'],
-			'Program':    self.pipeline_name,
-			'Start Time': start.isoformat(),
-			'Stop Time':  stop.isoformat(),
-			'Duration':   stop - start,
-			'Inputs':     os.path.dirname(sample['TumorBAM']),
-			'Input Size': input_size,
-			'Intermediate Files': intermediate_files,
-			'Outputs':    options['Pipeline Options']['somatic pipeline folder'],
-			'Output Size':output_size,
-			'Notes': 	  "",
-			'Status':	  status,
-			'Commands':   ",".join(sorted(callers.keys()))
-		}
-		csv_log([pipeline_log])
-
-
 
 class Pipeline:
 	def __init__(self, sample, options, sample_callers, DEBUG = False):
@@ -1893,7 +1840,7 @@ if __name__ == "__main__":
 		sample_filename = os.path.join(PIPELINE_DIRECTORY, "sample_list.tsv")
 		#somatic_callers = ['MuSE', 'Varscan', 'Strelka', 'SomaticSniper', 'Mutect2', "HaplotypeCaller", "UnifiedGenotyper"]
 		#copynumber_callers = ['Varscan', 'CNVkit', 'FREEC']
-		somatic_callers = ['SomaticSniper']
+		somatic_callers = ['varscan']
 		copynumber_callers = []
 	else:
 		sample_filename = CMD_PARSER.sample_list
