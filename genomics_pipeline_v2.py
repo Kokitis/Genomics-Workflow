@@ -12,6 +12,7 @@ import math
 import configparser
 import hashlib
 import shlex
+import file_tools
 from pprint import pprint
 from argparse import ArgumentParser
 
@@ -28,6 +29,8 @@ SAMPLE_LOG_FILE = os.path.join(PIPELINE_DIRECTORY, "0_config_files", "sample_log
 README_FILE = os.path.join(PIPELINE_DIRECTORY, "0_readme_files", "readme.{0}.txt".format(now().isoformat()))
 #Whether to use backwards-compatible filenames
 BACKWARDS_COMPATIBLE = True
+#Whether to overwrite any existing files
+FORCE_OVERWRITE = False
 #initial_working_directory = PIPELINE_DIRECTORY
 
 """Set up the LOGGER"""
@@ -106,8 +109,17 @@ def getsize(path, total = True):
 	if total: sizes = sum(sizes)
 	return sizes
 
-def Terminal(command, label = None, show_output = True):
-	""" Calls the system shell """
+def Terminal(command, label = None, filename = None):
+	""" Calls the system shell.
+		Parameters
+		----------
+			command: string
+				The command to run.
+			label: string
+				Used to mark output in the console.
+			filename: string
+				If not None, will output to console as a file.
+	"""
 	terminal_log = os.path.join(PIPELINE_DIRECTORY, "0_config_files", "terminal_log.log")
 	label = "{0} {1}".format(label if label is not None else "", now().isoformat())
 	terminal_label  = '--'*15 + label + '--'*15 + '\n'
@@ -117,8 +129,9 @@ def Terminal(command, label = None, show_output = True):
 	terminal_label += '--'*40 + '\n'
 
 	#Try using exceptions to catch timeout errors
-	logging.info("System Command: " + str(command))
-	if show_output:
+	#logging.info("System Command: " + str(command))
+	#if filename is None:
+	if True:
 		print(terminal_label)
 		process = os.system(command)
 		output = ""
@@ -126,9 +139,9 @@ def Terminal(command, label = None, show_output = True):
 		command = shlex.split(command)
 		process = subprocess.Popen(command, stdout = subprocess.PIPE, stderr = subprocess.STDOUT)
 		output = str(process.stdout.read(),'utf-8')
-		with open(CONSOLE_LOG_FILE, 'a') as console_file:
+		with open(filename, 'a') as console_file:
 			console_file.write(now().isoformat() + '\n')
-			console_file.write(command + '\n')
+			console_file.write(' '.join(command) + '\n')
 			console_file.write(output + '\n\n')
 
 	return output
@@ -158,7 +171,8 @@ class Caller:
 			print("\toutput folder: ", self.output_folder)
 			print("\ttemp folder: ", self.temp_folder)
 			print("\tcaller output prefix: ", self.prefix)
-		self.createReadMe(sample)
+
+		self.readme_file = self.createReadMe(sample)
 		self.runCallerWorkflow(sample, options)
 		if BACKWARDS_COMPATIBLE:
 			#Rename the output files to make them backwards compatible 
@@ -170,6 +184,7 @@ class Caller:
 	
 	def setCallerEnvironment(self, sample, options):
 		self.caller_name = self.__name__
+		#self.console_log_file = "{0}.console_log.txt".format(self.caller_name)
 		self.reference 	= options['Reference Files']['reference genome']
 		self.dbSNP 		= options['Reference Files']['dbSNP']
 		self.cosmic 	= options['Reference Files']['COSMIC']
@@ -201,7 +216,9 @@ class Caller:
 		self.command_list = list()
 		self.temp_files = list()
 		
-		checkdir(self.output_folder)
+		self.setCustomEnvironment(sample, options)
+		self.console_file = os.path.join(self.output_folder, "{0}.{1}.console_log.txt".format(self.caller_name, now().isoformat().split('T')[0]))
+		checkdir(self.output_folder, True)
 		checkdir(self.temp_folder, True)
 
 	def runCallerCommand(self, command, label, expected_output):
@@ -212,7 +229,7 @@ class Caller:
 
 		if len(expected_output) == 0 or files_missing:
 			self.addToReadMe(command, label, expected_output)
-			Terminal(command)
+			Terminal(command, label  = label, filename = self.console_file)
 		else:
 			basenames = [os.path.basename(fn) for fn in expected_output]
 			print("The following output files already exist:")
@@ -239,7 +256,7 @@ class Caller:
 		pass
 
 	def createReadMe(self, sample):
-		current_datetime =  now().isoformat()
+		current_datetime =  now().isoformat().split('T')[0]
 
 		readme_filename = "{0}.{1}.readme.txt".format(self.caller_name, current_datetime)
 		readme_filename = os.path.join(self.output_folder, readme_filename)
@@ -248,7 +265,8 @@ class Caller:
 			readme_file.write(self.caller_name + '\n')
 			readme_file.write("Started the caller at {0}\n".format(current_datetime))
 			for key, value in sample.items():
-				readme_file.write("{0}:\t{1}\n".format(key, value))
+				readme_file.write("{0:<15}{1}\n".format(key + ':', value))
+		return readme_filename
 
 	def addToReadMe(self, command, label, expected_output):
 		current_datetime = now()
@@ -259,7 +277,10 @@ class Caller:
 		with open(self.readme_file, 'a') as readme:
 			readme.write(linebreak)
 			readme.write(command + '\n')
-			readme.write("Expected Output: ", expected_output)
+			if isinstance(expected_output, list):
+				expected_output = '|'.join(expected_output)
+			readme.write("Expected Output: " + expected_output + '\n')
+			readme.write('\n')
 
 	def updateSampleLog(self, sample, program_start, program_stop):
 		status = self.getCallerStatus()
@@ -300,6 +321,8 @@ class Caller:
 				writer.writeheader()
 			writer.writerow(caller_log)
 
+	def setCustomEnvironment(self, sample, options):
+		pass
 	def getCallerStatus(self):
 		caller_failed = any(not os.path.exists(fn) for fn in self.full_output)
 		status = not caller_failed
@@ -397,7 +420,7 @@ class SomaticSniper(Caller):
 		self.script_folder = os.path.join(self.somaticsniper_folder, 'src', 'scripts')
 
 		self.snpfilter_script= os.path.join(self.script_folder, 'snpfilter.pl')
-		self.readcount_script =       os.path.join(self.script_folder, 'prepare_for_readcount.pl')
+		self.readcount_script =os.path.join(self.script_folder, 'prepare_for_readcount.pl')
 		self.hc_script =       os.path.join(self.script_folder, 'highconfidence.pl')
 		self.fpfilter  =       os.path.join(self.script_folder, 'fpfilter.pl')
 
@@ -416,7 +439,7 @@ class SomaticSniper(Caller):
 		loh_filtered_output  = self.prefix + ".SNPfilter.final"
 		_intermediate_file  = self.removeLOH(self.raw_variants, normal_pileup_file, _intermediate_loh_filtered_output)
 		loh_filtered_output = self.removeLOH(_intermediate_loh_filtered_output, tumor_pileup_file, loh_filtered_output)
-
+		#loh_filtered_output = _intermediate_file
 		
 		readcounts = self.readcounts(loh_filtered_output, sample['TumorBAM'])
 		false_positive_output = self.removeFalsePositives(loh_filtered_output, readcounts)
@@ -425,39 +448,14 @@ class SomaticSniper(Caller):
 		self.full_output = [self.raw_variants, self.hq_variants, self.lq_variants]
 		self.final_output = self.hq_variants
 	
-	def _setDefultOptions(self):
-		default_options = {
-			'q': self.min_mapping_quality, #filtering reads with mapping quality less than INT [0]
-			'Q': self.min_somatic_quality, #filtering somatic snv output with somatic quality less than INT [15]
-			'L': None,# FLAG do not report LOH variants as determined by genotypes
-
-			'G': None,	#do not report Gain of Referene variants as determined by genotypes
-
-			'p': None, 	#disable priors in the somatic calculation. Increases sensitivity for solid tumors.
-
-			'J': None, 	#Use prior probabilities accounting for the somatic mutation rate
-
-			's': 0.01, 	#FLOAT prior probability of a somatic mutation (implies -J) [0.01]
-
-			'T': 0.850000, #FLOAT theta in maq consensus calling model (for -c/-g) [0.850000]
-
-			'N': 2, 		#INT number of haplotypes in the sample (for -c/-g) [2]
-
-			'r': 0.001000, #FLOAT prior of a diﬀerence between two haplotypes (for -c/-g) [0.001000]
-			'F': 'vcf' 	#STRING select output format (vcf or classic) [classic]
-		}
-		
-		default_options = format_options(default_options)
-		return default_options
 	def runVariantDiscovery(self, sample):
 		#-------------------------------- Variant Discovery Command -----------------------------
 		#output_file = self.prefix + '.vcf'
 		#default_options = self._setDefultOptions()
-		somaticsniper_command = "{program} -q {mmq} -Q {mss} -F vcf -f {reference} {tumor} {normal} {outputfile}".format(
+		#somaticsniper_command = "{program} -q {mmq} -Q {mss} -F vcf -f {reference} {tumor} {normal} {outputfile}".format(
+		somaticsniper_command = "{program} -q 1 -Q 15 -s 0.01 -T 0.85 -N 2 -r 0.001 -G -L -n NORMAL -t TUMOR -F vcf -f {reference} {tumor} {normal} {outputfile}".format(
 			program 	= self.program,
 			reference 	= self.reference,
-			mmq 		= self.min_mapping_quality,
-			mss 		= self.min_somatic_quality,
 			tumor 		= sample['TumorBAM'],
 			normal 		= sample['NormalBAM'],
 			outputfile 	= self.raw_variants)
@@ -547,14 +545,13 @@ class SomaticSniper(Caller):
 
 	def runBackwardsCompatibility(self):
 
-		for fn in os.listdir(folder):
-			abs_fn = os.path.join(folder, fn)
+		for fn in os.listdir(self.output_folder):
+			abs_fn = os.path.join(self.output_folder, fn)
 			if "" in fn:
 				pass
 			elif "" in fn:
 				pass
-	def writeReadMe(self):
-		pass
+
 
 class Strelka(Caller):
 	__name__ = "Strelka"
@@ -773,6 +770,42 @@ class HaplotypeCaller(Caller):
 		status = self.runCallerCommand(command, self.dna_output)
 		return status
 
+class BQSRBeta(Caller):
+	def runCallerWorkflow(self, sample, options):
+		normal_report = self.generateReport(sample['NormalBAM'], sample['NormalID'])
+		tumor_report = self.generateReport(sample['TumorBAM'], sample['SampleID'])
+
+		normal_bam = createBam(sample['NormalBAM'], normal_report)
+
+
+	def generateReport(self, bam, name):
+		output_report = os.path.join(self.output_folder, "{0}.bam".format(nam))
+		report_cmd = """java -jar {gatk} \
+			-T BaseRecalibrator \
+			-R {reference} \
+			-I {bam} \
+			-knownSites {dbSNP} \
+			-o {report}""".format(
+				gatk = self.gatk_program,
+				reference = self.reference,
+				bam = bam,
+				dbSNP = self.dbSNP,
+				report = output_report)
+		return output_report
+	def createBam(self, bam, report):
+		output_bam = os.path.join(self.output_folder, bam + '.recalibrated')
+		command = """java -jar {gatk} \
+			-T PrintReads \
+			-R {reference} \
+			-I {bam} \
+			--BQSR {report} \
+			-o {output}""".format(
+				gatk = self.gatk_program,
+				reference = self.reference,
+				bam = bam,
+				report = report,
+				output = output_bam)
+		return output_bam
 
 class BaseQualityScoreRecalibration(Caller):
 	__name__ = "BaseQualityScoreRecalibration"
@@ -1756,6 +1789,9 @@ class GenomicsPipeline:
 		sample_start = now()
 		
 		use_this_sample = self._useSample(sample)['status']
+		if not use_this_sample:
+			print("Skipping ", sample['PatientID'])
+			return True
 		sample_caller_status = self._getSampleCompletedCallers(sample)
 
 		self._makePatientFolders(sample['PatientID'], config)
@@ -1855,8 +1891,10 @@ if __name__ == "__main__":
 	
 	if CMD_PARSER.debug:
 		sample_filename = os.path.join(PIPELINE_DIRECTORY, "sample_list.tsv")
-		somatic_callers = ['MuSE', 'Varscan', 'Strelka', 'SomaticSniper', 'Mutect2', "HaplotypeCaller", "UnifiedGenotyper"]
-		copynumber_callers = ['Varscan', 'CNVkit', 'FREEC']
+		#somatic_callers = ['MuSE', 'Varscan', 'Strelka', 'SomaticSniper', 'Mutect2', "HaplotypeCaller", "UnifiedGenotyper"]
+		#copynumber_callers = ['Varscan', 'CNVkit', 'FREEC']
+		somatic_callers = ['SomaticSniper']
+		copynumber_callers = []
 	else:
 		sample_filename = CMD_PARSER.sample_list
 		somatic_callers = ['MuSE', 'Varscan', 'Strelka', 'Somaticsniper', 'Mutect']
