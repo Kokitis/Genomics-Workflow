@@ -19,10 +19,15 @@ from argparse import ArgumentParser
 now = datetime.datetime.now
 GLOBAL_START = now() #Used to log when a series of samples were run together
 
+#The parent folder the pipeline will be run in.
 PIPELINE_DIRECTORY = "/home/upmc/Documents/Variant_Discovery_Pipeline"
+#File to save the console output to. Only used when the console output is supressed.
 CONSOLE_LOG_FILE = ""
+#File containing a test sample.
 SAMPLE_LOG_FILE = os.path.join(PIPELINE_DIRECTORY, "0_config_files", "sample_logV2.tsv")
 README_FILE = os.path.join(PIPELINE_DIRECTORY, "0_readme_files", "readme.{0}.txt".format(now().isoformat()))
+#Whether to use backwards-compatible filenames
+BACKWARDS_COMPATIBLE = True
 #initial_working_directory = PIPELINE_DIRECTORY
 
 """Set up the LOGGER"""
@@ -127,6 +132,7 @@ def Terminal(command, label = None, show_output = True):
 			console_file.write(output + '\n\n')
 
 	return output
+
 def readTSV(filename, headers = False):
 	with open(filename, 'r') as file1:
 		reader = csv.DictReader(file1, delimiter = '\t')
@@ -152,8 +158,13 @@ class Caller:
 			print("\toutput folder: ", self.output_folder)
 			print("\ttemp folder: ", self.temp_folder)
 			print("\tcaller output prefix: ", self.prefix)
-
+		self.createReadMe(sample)
 		self.runCallerWorkflow(sample, options)
+		if BACKWARDS_COMPATIBLE:
+			#Rename the output files to make them backwards compatible 
+			#with previous versions of the pipeline.
+			self.runBackwardsCompatibility()
+		
 		program_stop = now()
 		self.updateSampleLog(sample, program_start, program_stop)
 	
@@ -193,13 +204,14 @@ class Caller:
 		checkdir(self.output_folder)
 		checkdir(self.temp_folder, True)
 
-	def runCallerCommand(self, command, expected_output):
+	def runCallerCommand(self, command, label, expected_output):
 		self.command_list.append(command)
 		if isinstance(expected_output, str): expected_output = [expected_output]
 
 		files_missing = any([not os.path.exists(fn) for fn in expected_output])
 
 		if len(expected_output) == 0 or files_missing:
+			self.addToReadMe(command, label, expected_output)
 			Terminal(command)
 		else:
 			basenames = [os.path.basename(fn) for fn in expected_output]
@@ -221,6 +233,33 @@ class Caller:
 
 		self.runCallerCommand(pileup_command, output_file)
 		return output_file
+
+	def runBackwardsCompatibility(self):
+		""" Renames the output files to be compatible with previous versions of the pipeline. """
+		pass
+
+	def createReadMe(self, sample):
+		current_datetime =  now().isoformat()
+
+		readme_filename = "{0}.{1}.readme.txt".format(self.caller_name, current_datetime)
+		readme_filename = os.path.join(self.output_folder, readme_filename)
+
+		with open(readme_filename, 'w') as readme_file:
+			readme_file.write(self.caller_name + '\n')
+			readme_file.write("Started the caller at {0}\n".format(current_datetime))
+			for key, value in sample.items():
+				readme_file.write("{0}:\t{1}\n".format(key, value))
+
+	def addToReadMe(self, command, label, expected_output):
+		current_datetime = now()
+		line_len = 100
+		num = line_len - (len(label) + len(current_datetime.isoformat()))
+		linebreak = '#' * int(num / 2) + "{0} {1}".format(current_datetime.isoformat(), label) + "#" * int(num/2) + '\n'
+
+		with open(self.readme_file, 'a') as readme:
+			readme.write(linebreak)
+			readme.write(command + '\n')
+			readme.write("Expected Output: ", expected_output)
 
 	def updateSampleLog(self, sample, program_start, program_stop):
 		status = self.getCallerStatus()
@@ -422,8 +461,8 @@ class SomaticSniper(Caller):
 			tumor 		= sample['TumorBAM'],
 			normal 		= sample['NormalBAM'],
 			outputfile 	= self.raw_variants)
-
-		status = self.runCallerCommand(somaticsniper_command, self.raw_variants)
+		label = "SomaticSniper Variant Discovery"
+		status = self.runCallerCommand(somaticsniper_command, label, self.raw_variants)
 		return status
 
 	def generatePileupFile(self, bam_file, bam_name):
@@ -439,9 +478,11 @@ class SomaticSniper(Caller):
 			basequality = self.min_base_quality,
 			inputpileup = pileup_file,
 			outputpileup = output_file)
-		#samtools.pl varFilter raw.pileup | awk '$6>=20' > final.pileup 
-		self.runCallerCommand(samtools_command, pileup_file)
-		self.runCallerCommand(filter_command, output_file)
+		#samtools.pl varFilter raw.pileup | awk '$6>=20' > final.pileup
+		label = "SomaticSniper: Generate Pileup File" 
+		self.runCallerCommand(samtools_command, label, pileup_file)
+		label = "SomaticSniper: Filter Pileup File"
+		self.runCallerCommand(filter_command, label, output_file)
 
 		return output_file
 
@@ -452,8 +493,8 @@ class SomaticSniper(Caller):
 			vcf = vcf_file,
 			pileup = pileup_file,
 			output = output_file)
-
-		self.runCallerCommand(command, output_file)
+		label = "SomaticSniper: removeLOH"
+		self.runCallerCommand(command, label, output_file)
 		return output_file
 
 	def readcounts(self, loh_file, tumor_bam):
@@ -466,7 +507,8 @@ class SomaticSniper(Caller):
 			script = self.readcount_script,
 			inputfile = loh_file,
 			output = prepare_readcount_output)
-		self.runCallerCommand(pr_command, prepare_readcount_output)
+		label = "SomaticSniper: Prepare Readcounts"
+		self.runCallerCommand(pr_command, label, prepare_readcount_output)
 		#Readcounts
 
 		readcount_command = "{program} -b {mbq} -q 1 -f {reference} -l {proutput} {tumor} > {output}".format(
@@ -476,7 +518,8 @@ class SomaticSniper(Caller):
 			proutput = prepare_readcount_output,
 			tumor = tumor_bam,
 			output = readcount_output)
-		self.runCallerCommand(readcount_command, readcount_output)
+		label = "SomaticSniper: Generate Readcounts"
+		self.runCallerCommand(readcount_command, label, readcount_output)
 
 		return readcount_output
 
@@ -486,7 +529,8 @@ class SomaticSniper(Caller):
 			fpfilter = self.fpfilter,
 			snpfilter = loh_file,
 			readcounts = readcounts)
-		self.runCallerCommand(fp_command, false_positive_output)
+		label = "SomaticSniper: Remove False Positives"
+		self.runCallerCommand(fp_command, label, false_positive_output)
 		return false_positive_output
 
 	def calculateConfidence(self, vcf_file):
@@ -497,8 +541,20 @@ class SomaticSniper(Caller):
 			vcf = vcf_file,
 			hq = self.hq_variants,
 			lq = self.lq_variants)
-		status = self.runCallerCommand(command,[self.hq_variants, self.lq_variants])
+		label = "SomaticSniper: Filter lq Variants"
+		status = self.runCallerCommand(command, label, [self.hq_variants, self.lq_variants])
 		return status
+
+	def runBackwardsCompatibility(self):
+
+		for fn in os.listdir(folder):
+			abs_fn = os.path.join(folder, fn)
+			if "" in fn:
+				pass
+			elif "" in fn:
+				pass
+	def writeReadMe(self):
+		pass
 
 class Strelka(Caller):
 	__name__ = "Strelka"
