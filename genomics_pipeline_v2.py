@@ -156,8 +156,6 @@ class Caller:
 		self.runCallerWorkflow(sample, options)
 		program_stop = now()
 		self.updateSampleLog(sample, program_start, program_stop)
-
-
 	
 	def setCallerEnvironment(self, sample, options):
 		self.caller_name = self.__name__
@@ -195,8 +193,6 @@ class Caller:
 		checkdir(self.output_folder)
 		checkdir(self.temp_folder, True)
 
-
-
 	def runCallerCommand(self, command, expected_output):
 		self.command_list.append(command)
 		if isinstance(expected_output, str): expected_output = [expected_output]
@@ -229,27 +225,41 @@ class Caller:
 	def updateSampleLog(self, sample, program_start, program_stop):
 		status = self.getCallerStatus()
 		duration = program_stop - program_start
+		iso_duration = isodate.duration_isoformat(duration)
 		caller_log = {
-			'PatientID':  sample['PatientID'],
-			'Program':    self.caller_name,
-			'Start Time': program_start.isoformat(),
-			'Stop Time':  program_stop.isoformat(),
-			'Duration':   duration,
-			'Intermediate Files': ', '.join(self.temp_files),
-			'Outputs':    ', '.join(self.full_output),#'|'.join(outputs),
-			'Notes': 	  "",
-			'Status':	  status,
-			'Commands':   '|'.join(self.command_list)#'|'.join(commands)
+			'patientId':  sample['PatientID'],
+			'caller':    self.caller_name,
+			'startTime': program_start.isoformat(),
+			'stopTime':  program_stop.isoformat(),
+			'duration':   duration,
+			'isoDuration': iso_duration,
+			'intermediateFiles': ', '.join(self.temp_files),
+			'outputFiles':    ', '.join(self.full_output),#'|'.join(outputs),
+			'notes': 	  "",
+			'status':	  status,
+			'commands':   '|'.join(self.command_list)#'|'.join(commands)
 		}
 		writeheaders = not os.path.exists(SAMPLE_LOG_FILE) or os.path.getsize(SAMPLE_LOG_FILE) == 0
-		line 	= sorted(caller_log.items())
-		line 	= list(reversed(line))
-		headers = '\t'.join([i[0] for i in line]) + '\n'
-		line 	= '\t'.join([str(i[1]) for i in line]) + '\n'
+		#line 	= sorted(caller_log.items())
+		#line 	= list(reversed(line))
+		#headers = '\t'.join([i[0] for i in line]) + '\n'
+		#line 	= '\t'.join([str(i[1]) for i in line]) + '\n'
 
-		with open(SAMPLE_LOG_FILE, 'a') as file1:
-			if writeheaders: file1.write(headers)
-			file1.write(line)
+		#with open(SAMPLE_LOG_FILE, 'a') as file1:
+		#	if writeheaders: file1.write(headers)
+		#	file1.write(line)
+		if not writeheaders:
+			with open(SAMPLE_LOG_FILE, 'r') as file1:
+				reader = csv.DictReader(file1, delimiter = '\t')
+				fieldnames = reader.fieldnames
+		else:
+			fieldnames = sorted(caller_log.keys())
+
+		with open(SAMPLE_LOG_FILE, 'a', newline = '') as file1:
+			writer = csv.DictWriter(file1, fieldnames = fieldnames, delimiter = '\t')
+			if writeheaders:
+				writer.writeheader()
+			writer.writerow(caller_log)
 
 	def getCallerStatus(self):
 		caller_failed = any(not os.path.exists(fn) for fn in self.full_output)
@@ -654,7 +664,7 @@ class HaplotypeCaller(Caller):
 
 	def callRNAVariants(self, bam_file):
 		command = """java -jar {GATK} \
-			-T HaplotypeCaller
+			-T HaplotypeCaller \
 			-R {reference} \
 			-I {sample} \
 			--dbsnp {dbSNP} \
@@ -687,7 +697,7 @@ class HaplotypeCaller(Caller):
 	
 	def callDNAVariants(self, sample, options):
 		command = """java -jar {GATK} \
-			-T HaplotypeCaller
+			-T HaplotypeCaller \
 			-R {reference} \
 			-I {normal} \
 			-I {tumor} \
