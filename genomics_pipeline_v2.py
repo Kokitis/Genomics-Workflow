@@ -1148,7 +1148,7 @@ class VarscanCopynumber(Caller):
 		self.rscript_filename 	= os.path.join(self.output_folder, "{0}.varscan_CBS.r".format(sample['PatientID']))
 		self.copynumber_output 	= self.prefix + '.copynumber'			#[prefix].copynumber
 		self.called_copynumbers = self.copynumber_output + '.called'	#[prefix].copynumber.called
-		self.called_homdels 		= self.called_copynumbers + '.homdel'	#[prefix].copynumber.called.homdel
+		self.called_homdels 	= self.called_copynumbers + '.homdel'	#[prefix].copynumber.called.homdel
 		self.copynumber_segments =self.called_copynumbers + '.segments' #[prefix].copynumber.called.segments
 
 		normal_pileup 	= self.generatePileup(sample['NormalBAM'], sample['NormalID'])
@@ -1508,9 +1508,9 @@ class CopynumberPipeline(Pipeline):
 	@staticmethod
 	def _getAvailableCallers():
 		available_callers = {
-			'varscan': VarscanCopynumber,
-			'cnvkit': CNVkit,
-			'freec': FREEC
+			#'varscan': VarscanCopynumber,
+			'cnvkit': CNVkit
+			#'freec': FREEC
 		}
 		return available_callers
 
@@ -1624,6 +1624,8 @@ class GenomicsPipeline:
 
 	@staticmethod
 	def _loadPipelineConfiguration(sample_filename, config_filename):
+		if not os.path.isabs(sample_filename):
+			sample_filename = os.path.join(PIPELINE_DIRECTORY, sample_filename)
 		if not os.path.isfile(sample_filename):
 			message = "The sample list does not exists at " + sample_filename
 		elif not os.path.isfile(config_filename):
@@ -1853,12 +1855,13 @@ if __name__ == "__main__":
 		sample_filename = os.path.join(PIPELINE_DIRECTORY, "sample_list.tsv")
 		#somatic_callers = ['MuSE', 'Varscan', 'Strelka', 'SomaticSniper', 'Mutect2', "HaplotypeCaller", "UnifiedGenotyper"]
 		#copynumber_callers = ['Varscan', 'CNVkit', 'FREEC']
-		somatic_callers = ['muse', 'varscan']
+		somatic_callers = ['all']
 		copynumber_callers = ['all']
 	else:
 		sample_filename = CMD_PARSER.sample_list
-		somatic_callers = ['MuSE', 'Varscan', 'Strelka', 'Somaticsniper', 'Mutect2', 'DepthOfCoverage']
-		copynumber_callers = ['varscan', 'cnvkit', 'freec']	
+
+		somatic_callers = ['DepthOfCoverage', 'somaticsniper']
+		copynumber_callers = []	
 
 	pipeline = GenomicsPipeline(sample_filename, config_filename = config_filename, somatic = somatic_callers, copynumber = copynumber_callers, parser = CMD_PARSER)
 else:
