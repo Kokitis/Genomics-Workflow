@@ -1837,7 +1837,12 @@ def getCMDArgumentParser():
 	parser.add_argument("-a", "--all-callers",
 		dest = 'use_all_callers',
 		action = 'store_true',
-		help = "Uses al available callers")
+		help = "Tells the pipeline to use all available callers")
+
+	parser.add_argument("--force-overwrite",
+		dest = 'force_overwrite',
+		action = 'store_true',
+		help = "Whether to delete any caller files and re-do the analysis.")
 
 	return parser
 
@@ -1847,7 +1852,8 @@ API = gdc_api.GDCAPI()
 if __name__ == "__main__":
 
 	CMD_PARSER = getCMDArgumentParser().parse_args()
-
+	if CMD_PARSER.force_overwrite:
+		FORCE_OVERWRITE = True
 	config_filename 		= os.path.join(PIPELINE_DIRECTORY, "0_config_files", "pipeline_project_options.txt")
 	caller_status_filename 	= os.path.join(PIPELINE_DIRECTORY, "0_config_files", "caller_status.tsv")
 	
