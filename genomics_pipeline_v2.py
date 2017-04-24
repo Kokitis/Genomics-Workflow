@@ -220,7 +220,7 @@ class Caller:
 		self.cosmic 	= options['Reference Files']['COSMIC']
 
 
-		self.program 			= options['Programs'].get(self.caller_name)
+		self.program 			= options['Programs'].get(self.caller_name.lower())
 		self.gatk_program 		= options['Programs']['GATK']
 		self.max_cpu_threads 	= options['Parameters']['MAX_CORES']
 		self.max_memory_usage 	= options['Parameters']['JAVA_MAX_MEMORY_USAGE']
@@ -306,10 +306,14 @@ class Caller:
 		pass
 
 	def createReadMe(self, sample):
-		current_datetime =  generateTimestamp()
+		candidates = [i for i in os.listdir(self.output_folder) if '.readme.txt' in i]
+		if len(candidates) == 0:
+			current_datetime =  generateTimestamp()
 
-		readme_filename = "{0}.{1}.readme.txt".format(self.caller_name, current_datetime)
-		readme_filename = os.path.join(self.output_folder, readme_filename)
+			readme_filename = "{0}.{1}.readme.txt".format(self.caller_name, current_datetime)
+			readme_filename = os.path.join(self.output_folder, readme_filename)
+		else:
+			readme_filename =list(reversed(sorted(candidates)))[0]
 
 		with open(readme_filename, 'w') as readme_file:
 			readme_file.write(self.caller_name + '\n')
@@ -1488,7 +1492,7 @@ class SomaticPipeline(Pipeline):
 			#'gdc': GDC_somatic,
 			'depthofcoverage': DepthOfCoverage,
 			'muse': MuSE,
-			'mutect': MuTect,
+			#'mutect': MuTect,
 			'mutect2': MuTect2,
 			'somaticsniper': SomaticSniper,
 			'strelka': Strelka,
@@ -1858,7 +1862,7 @@ if __name__ == "__main__":
 	caller_status_filename 	= os.path.join(PIPELINE_DIRECTORY, "0_config_files", "caller_status.tsv")
 	
 	if CMD_PARSER.debug:
-		sample_filename = os.path.join(PIPELINE_DIRECTORY, "sample_list.tsv")
+		sample_filename = os.path.join(os.getcwd(), "debug_sample_list.tsv")
 		#somatic_callers = ['MuSE', 'Varscan', 'Strelka', 'SomaticSniper', 'Mutect2', "HaplotypeCaller", "UnifiedGenotyper"]
 		#copynumber_callers = ['Varscan', 'CNVkit', 'FREEC']
 		somatic_callers = ['all']
