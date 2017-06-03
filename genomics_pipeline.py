@@ -35,19 +35,19 @@ FORCE_OVERWRITE = False
 def configurePipelineLogger():
 
     logger_filename = os.path.join(PIPELINE_DIRECTORY, '0_config_files', 'pipeline_log.log')
-    LOGGER = logging.getLogger('genome_pipeline')
+    pipeline_logger = logging.getLogger('genome_pipeline')
     hdlr = logging.FileHandler(logger_filename)
     formatter = logging.Formatter('%(asctime)s %(levelname)s %(message)s')
     hdlr.setFormatter(formatter)
-    LOGGER.addHandler(hdlr) 
-    LOGGER.setLevel(logging.INFO)
+    pipeline_logger.addHandler(hdlr)
+    pipeline_logger.setLevel(logging.INFO)
 
-    LOGGER.info("#" * 120)
+    pipeline_logger.info("#" * 120)
 
-    LOGGER.info('#'*30 + 'Starting the genomics pipeline at ' + GLOBAL_START.isoformat() + '#'*30)
+    pipeline_logger.info('#'*30 + 'Starting the genomics pipeline at ' + GLOBAL_START.isoformat() + '#'*30)
 
-    LOGGER.info("#" * 120)
-    return LOGGER
+    pipeline_logger.info("#" * 120)
+    return pipeline_logger
 
 # ----------------------------------------------------------------------------------------------------
 # ------------------------------------ Set Up Global Functions ---------------------------------------
@@ -121,9 +121,8 @@ def getVisableLabel(label, char = '#'):
     """ Generates a highly visible label in the terminal."""
     total_length = 200
     edge_label = char * total_length + '\n'
-    middle_label
     complete_label = edge_label
-    complete_label += intermediate_char + middle_label + intermediate_char + '\n'
+    complete_label += intermediate_char + label + intermediate_char + '\n'
     complete_label += char * total_length + '\n'
 
 
@@ -220,6 +219,19 @@ class Caller:
         self.updateSampleLog(sample, program_start, program_stop)
 
     def setCallerEnvironment(self, sample, options):
+        """ Creates a set of object variables that are commonly used by difference callers.
+            Parameters
+            ----------
+                sample: dict<>
+                    The patient's information.
+                options: dict<>
+                    The options for the pipeline.
+        """
+        """
+        :param sample: 
+        :param options: 
+        :return: 
+        """
         self.caller_name = self.__name__
         # pprint(options)
         # self.console_log_file = "{0}.console_log.txt".format(self.caller_name)
@@ -267,10 +279,14 @@ class Caller:
         checkdir(self.output_folder, True)
         checkdir(self.temp_folder, True)
 
-    def runCallerCommand(self, command, label = "", expected_output = [], show_output = False):
+    def runCallerCommand(self, command, label = "", expected_output = None, show_output = False):
+        if expected_output is None:
+            expected_output = []
+        elif isinstance(expected_output, str):
+            expected_output = [expected_output]
         self.command_list.append(command)
 
-        if isinstance(expected_output, str): expected_output = [expected_output]
+
 
         files_missing = any([not os.path.exists(fn) for fn in expected_output])
         
@@ -300,7 +316,13 @@ class Caller:
         """ Generates pileup files. If single is True, only
             one file will be generated.
         """
-        output_file = os.path.join(self.temp_folder, '{0}.{1}.mpileup'.format(bam_name, self.caller_name.lower()))
+        output_file = os.path.join(
+            self.temp_folder,
+            '{}.{}.mpileup'.format(
+                bam_name,
+                self.caller_name.lower()
+            )
+        )
         pileup_command = "samtools mpileup -q 1 -B -f {reference} {sample} > {output}".format(
             reference = self.reference,
             sample = bam_file,
@@ -316,14 +338,16 @@ class Caller:
         self.runCallerCommand(pileup_command, label, output_file, show_output = True)
         return output_file
 
-    def runBackwardsCompatibility(self, sample):
+    @staticmethod
+    def runBackwardsCompatibility(sample):
         """ Renames the output files to be compatible with previous versions of the pipeline. """
         pass
 
     def createReadMe(self, sample):
         candidates = [i for i in os.listdir(self.output_folder) if '.readme.txt' in i]
+        current_datetime = generateTimestamp()
         if len(candidates) == 0:
-            current_datetime = generateTimestamp()
+
 
             readme_filename = "{0}.{1}.readme.txt".format(self.caller_name, current_datetime)
             readme_filename = os.path.join(self.output_folder, readme_filename)
@@ -532,7 +556,6 @@ class MuTect2(Caller):
     __name__ = "MuTect2"
 
     def runCallerWorkflow(self, sample, options):
-        # super().__init__(self, sample, options, 'MuTect2')
         self.final_output = self.prefix + '.vcf'
         mutect2_output = self.runMutect2(sample)
         self.full_output = [self.final_output]
@@ -695,7 +718,8 @@ class SomaticSniper(Caller):
             candidates = sorted(os.listdir(self.output_folder))
             if len(candidates) == 0:
                 candidate = self.console_file
-            else: candidates[-1]
+            else:
+                candidate = candidates[-1]
         else:
             candidate = self.console_file
 
@@ -805,7 +829,8 @@ class Strelka(Caller):
         self.runCallerCommand(strelka_run_command, label, output_files)
         return output_files
 
-    def getStrelkaConfiguration(self):
+    @staticmethod
+    def getStrelkaConfiguration():
         strelka_configuration_options = """
             isSkipDepthFilters = 1                      isSkipDepthFilters should be set to 1 to skip depth filtration for whole exome or other targeted sequencing data
             maxInputDepth = 10000                       strelka will not accept input reads above this depth. Set this value <= 0 to disable this feature.
@@ -1063,7 +1088,8 @@ class BaseQualityScoreRecalibration(Caller):
             self.realigned_bam
         ]
 
-    def _getRNABAM(self, sample):
+    @staticmethod
+    def _getRNABAM(sample):
         return sample['RNABAM']
     
     def splitCigarReads(self, bam_file):
@@ -1640,10 +1666,6 @@ class CopynumberPipeline(Pipeline):
         return os.path.join(options['working directory'], "4_copynumber_pipeline")
 
 
-class RNAPipeline(Pipeline):
-    @staticmethod
-    def _getCallers(callers):
-        pass
 # ----------------------------------------------------------------------------------------------------
 # --------------------------------------------- Main -------------------------------------------------
 # ----------------------------------------------------------------------------------------------------
@@ -1674,7 +1696,8 @@ class SampleBAMFiles:
         else:
             self.status = normal_file_status and tumor_file_status
 
-    def _fetchFilename(self, filename, file_id):
+    @staticmethod
+    def _fetchFilename(filename, file_id):
         """
             Parameters
             ----------
@@ -1707,7 +1730,7 @@ class SampleBAMFiles:
 
 
 class GenomicsPipeline:
-    def __init__(self, sample_filename, **kwargs):
+    def __init__(self, sample_list_filename, **kwargs):
         """
             Required Arguments
             ------------------
@@ -1725,10 +1748,10 @@ class GenomicsPipeline:
 
         self.parser = kwargs['parser']
         # Parse the provided arguments
-        somatic_callers = [i.lower() for i in kwargs.get("somatic", [])]
-        copynumber_callers = [i.lower() for i in kwargs.get("copynumber", [])]
+        somatic_callers_list = [i.lower() for i in kwargs.get("somatic", [])]
+        copynumber_callers_list = [i.lower() for i in kwargs.get("copynumber", [])]
 
-        config_filename = kwargs.get(
+        configuration_filename = kwargs.get(
             'config_filename',
             os.path.join(
                 PIPELINE_DIRECTORY,
@@ -1745,10 +1768,10 @@ class GenomicsPipeline:
             )
         )
 
-        sample_list, config = self._loadPipelineConfiguration(sample_filename, config_filename)     
+        sample_list, config = self._loadPipelineConfiguration(sample_list_filename, configuration_filename)
         
-        LOGGER.info("Somatic Callers: " + ', '.join(somatic_callers))
-        LOGGER.info("Copynumber Callers: " + ', '.join(copynumber_callers))
+        LOGGER.info("Somatic Callers: " + ', '.join(somatic_callers_list))
+        LOGGER.info("Copynumber Callers: " + ', '.join(copynumber_callers_list))
         LOGGER.info("Running through the genomics pipeline with {0} samples.".format(len(sample_list)))
         # sample_list = []
         for index, sample in enumerate(sample_list):
@@ -1764,23 +1787,23 @@ class GenomicsPipeline:
             sample_status = self.runSample(sample, config, somatic_callers, copynumber_callers)
 
     @staticmethod
-    def _loadPipelineConfiguration(sample_filename, config_filename):
-        if not os.path.isabs(sample_filename):
-            sample_filename = os.path.join(PIPELINE_DIRECTORY, sample_filename)
-        if not os.path.isfile(sample_filename):
-            message = "The sample list does not exists at " + sample_filename
-        elif not os.path.isfile(config_filename):
-            message = "The config file does not exist at " + config_filename
+    def _loadPipelineConfiguration(_sample_filename, _config_filename):
+        if not os.path.isabs(_sample_filename):
+            _sample_filename = os.path.join(PIPELINE_DIRECTORY, _sample_filename)
+        if not os.path.isfile(_sample_filename):
+            message = "The sample list does not exists at " + _sample_filename
+        elif not os.path.isfile(_config_filename):
+            message = "The config file does not exist at " + _config_filename
         else:
             message = None
         if message is not None:
             raise FileNotFoundError(message)
 
-        sample_list = readTSV(sample_filename)
+        sample_list = readTSV(_sample_filename)
 
         # ----------------------------------------Process Config ------------------------------------------
         config = configparser.ConfigParser()
-        config.read(config_filename)
+        config.read(_config_filename)
         
         return sample_list, config
     
@@ -1820,7 +1843,8 @@ class GenomicsPipeline:
 
         return use_status
 
-    def generate_readme(self, options):
+    @staticmethod
+    def generate_readme(options):
         readmefile = "readme.txt"
 
         general_notes = [
@@ -1873,7 +1897,7 @@ class GenomicsPipeline:
 
         pass
 
-    def runSample(self, sample, config, somatic_callers, copynumber_callers):
+    def runSample(self, sample, config, somatic_callers, current_copynumber_callers):
         print("#"*180)
         print("#"*90 + sample['PatientID'] + '#'*90)
         print("#"*180)
@@ -1881,7 +1905,7 @@ class GenomicsPipeline:
         if self.parser.debug:
             print("PatientID: ", sample['PatientID'])
             print("\tSomatic Callers: ", somatic_callers)
-            print("\tCopynumber Callers: ", copynumber_callers)
+            print("\tCopynumber Callers: ", current_copynumber_callers)
 
         sample_start = now()
         
@@ -1917,10 +1941,10 @@ class GenomicsPipeline:
                 print("\t\tSomatic Callers: ", somatic_callers)
 
             if not self.parser.ignore_caller_status and not self.parser.debug:
-                copynumber_callers = [i for i in somatic_callers if i not in sample_completed_callers]
-            copynumber_pipeline = CopynumberPipeline(sample, config, copynumber_callers)
+                current_copynumber_callers = [i for i in somatic_callers if i not in sample_completed_callers]
+            copynumber_pipeline = CopynumberPipeline(sample, config, current_copynumber_callers)
             if self.parser.debug:
-                print("Copynumber Callers: ", copynumber_callers)
+                print("Copynumber Callers: ", current_copynumber_callers)
         else:
             logging.critical("{0}: The BAM files are invalid!".format(sample['PatientID']))
             print("\tThe BAM files did not download correctly!")
