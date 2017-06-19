@@ -2,18 +2,19 @@ import csv
 import logging
 import datetime
 import os
-import hashlib
 import shutil
 import isodate
 import gdc_api
-import subprocess
-import math
 import configparser
-import hashlib
-import shlex
-import file_tools
+
 from pprint import pprint
 from argparse import ArgumentParser
+GITHUB_FOLDER = os.path.dirname(os.path.realpath(__file__))
+import sys
+sys.path.append(GITHUB_FOLDER)
+import pytools.systemtools as systemtools
+import pytools.filetools as filetools
+import pytools.tabletools as tabletools
 
 # --------------------------------- Global Variables ----------------------------
 now = datetime.datetime.now
@@ -52,52 +53,10 @@ def configurePipelineLogger():
 # ------------------------------------ Set Up Global Functions ---------------------------------------
 # ----------------------------------------------------------------------------------------------------
 
-
-def generate_file_md5(filename, blocksize=2**20):
-	m = hashlib.md5()
-	with open(filename, "rb") as f:
-		while True:
-			buf = f.read(blocksize)
-			if not buf:
-				break
-			m.update(buf)
-	return m.hexdigest()
-
-
-def checkdir(path, full = False):
-	if not os.path.exists(path): 
-		if full:
-			os.makedirs(path)
-		else:
-			os.mkdir(path)
-
-
 def generateTimestamp():
 	timestamp = now().isoformat()
 	timestamp = timestamp.split('.')[0]
 	return timestamp
-
-
-def format_options(options):
-	""" Transforms a dictionary of options into a string.
-		Use '|' to separate values with the same option key
-	"""
-	options = options.copy()
-	option_string = list()
-	for param, value in sorted(options.items()):
-		if param in {'output', 'program', 'notes'}: continue
-		if value in {None}: continue
-		if value == "":
-			string = "-{0}".format(param)
-		elif isinstance(value, str) and '|' in value:
-			value = value.split('|')
-			string = ["-{0} {1}".format(param, i) for i in value]
-			string = ' '.join(string)
-		else:
-			string = "-{0} {1}".format(param, value)
-		option_string.append(string)
-	option_string = " ".join(option_string)
-	return option_string
 
 
 def getsize(path, total = True):
@@ -115,69 +74,6 @@ def getsize(path, total = True):
 	if total: sizes = sum(sizes)
 	return sizes
 
-
-def getVisableLabel(label, char = '#'):
-	""" Generates a highly visible label in the terminal."""
-	total_length = 200
-	edge_label = char * total_length + '\n'
-	complete_label = edge_label
-	complete_label += intermediate_char + label + intermediate_char + '\n'
-	complete_label += char * total_length + '\n'
-
-
-def Terminal(command, label = "", filename = None):
-	""" Calls the system shell.
-		Parameters
-		----------
-			command: string
-				The command to run.
-			label: string
-				Used to mark output in the console.
-			filename: string
-				If not None, will output to console as a file.
-	"""
-	# print("Terminal(label = {0})".format(label))
-	terminal_log = os.path.join(PIPELINE_DIRECTORY, "0_config_files", "terminal_log.log")
-	terminal_label = "{0} {1}".format(label, generateTimestamp())
-	terminal_label = '--'*15 + terminal_label + '--'*15 + '\n'
-	terminal_label += '..'*40 + '\n'
-	terminal_label += " ".join(shlex.split(command)) + '\n'
-	terminal_label += '..'*40 + '\n'
-	terminal_label += '--'*40 + '\n'
-
-	# Try using exceptions to catch timeout errors
-	# logging.info("System Command: " + str(command))
-	# if filename is None:
-	if filename is None:
-		# print(terminal_label)
-		process = os.system(command)
-		output = ""
-	else:
-		command = shlex.split(command)
-		process = subprocess.Popen(command, stdout = subprocess.PIPE, stderr = subprocess.STDOUT)
-		output = str(process.stdout.read(), 'utf-8')
-		updateConsoleLog(filename, command, output, label)
-
-	return output
-
-
-def updateConsoleLog(filename, command, output, label = ""):
-	if os.path.exists(filename): opentype = 'a'
-	else: opentype = 'w'
-	with open(filename, opentype) as console_file:
-		console_file.write(now().isoformat() + ': ' + label + '\n')
-		console_file.write(' '.join(command) + '\n')
-		console_file.write(output + '\n\n')
-
-
-def readTSV(filename, headers = False):
-	with open(filename, 'r') as file1:
-		reader = csv.DictReader(file1, delimiter = '\t')
-		fieldnames = reader.fieldnames
-		reader = list(reader)
-
-	if headers: return reader, fieldnames
-	else: return reader
 
 # ----------------------------------------------------------------------------------------------------
 # ------------------------------------- Variant Caller Pipeline --------------------------------------
@@ -198,7 +94,7 @@ class Caller:
 		
 		if FORCE_OVERWRITE and os.path.exists(self.output_folder):
 			shutil.rmtree(self.output_folder)
-		checkdir(self.output_folder)
+		filetools.checkDir(self.output_folder)
 
 		if DEBUG:
 			print("Running ", self.caller_name)
@@ -209,10 +105,8 @@ class Caller:
 
 		self.readme_file = self.createReadMe(sample)
 		self.runCallerWorkflow(sample, options)
-		if BACKWARDS_COMPATIBLE:
-			# Rename the output files to make them backwards compatible 
-			# with previous versions of the pipeline.
-			self.runBackwardsCompatibility(sample)
+
+		self.renameOutputFiles()
 		
 		program_stop = now()
 		self.updateSampleLog(sample, program_start, program_stop)
@@ -275,10 +169,12 @@ class Caller:
 			)
 		)
 
-		checkdir(self.output_folder, True)
-		checkdir(self.temp_folder, True)
+		filetools.checkDir(self.output_folder, True)
+		filetools.checkDir(self.temp_folder, True)
 
-	def runCallerCommand(self, command, label = "", expected_output = None, show_output = False):
+		#Set default values for any object atributes.
+
+	def runCallerCommand(self, command, label = "", expected_output = None, show_output = False, filename = None):
 		if expected_output is None:
 			expected_output = []
 		elif isinstance(expected_output, str):
@@ -291,6 +187,7 @@ class Caller:
 		
 		if label == "":
 			label = self.caller_name + ".runCallerCommand"
+
 		timestamp = generateTimestamp()
 		print('\t' + timestamp + ": " + label)
 		
@@ -299,16 +196,20 @@ class Caller:
 			print("\texpected Output: ")
 			for fn in expected_output:
 				print("\t\tFile Exists:", os.path.exists(fn), "\t", fn)
-			if show_output:
-				Terminal(command, label = label)
-			else:
-				Terminal(command, label = label, filename = self.console_file)
+
+		if filename is None:
+			_terminal_file = self.console_file
 		else:
-			basenames = [os.path.basename(fn) for fn in expected_output]
-			print("\tThe following output files already exist:")
-			for basename in basenames:
-				print("\t\t", basename)
-		command_status = len(expected_output) == 0 or not any([not os.path.exists(fn) for fn in expected_output])
+			_terminal_file = filename
+
+		call_process = systemtools.Terminal(
+			command,
+			label = label,
+			expected_output = expected_output,
+			filename = _terminal_file,
+			show_output = show_output)
+
+		command_status = call_process.status
 		return command_status
 
 	def generatePileup(self, bam_file, bam_name):
@@ -340,6 +241,9 @@ class Caller:
 	@staticmethod
 	def runBackwardsCompatibility(sample):
 		""" Renames the output files to be compatible with previous versions of the pipeline. """
+		pass
+
+	def renameOutputFiles(self):
 		pass
 
 	def createReadMe(self, sample):
@@ -394,14 +298,7 @@ class Caller:
 			'commands':   '|'.join(self.command_list)
 		}
 		writeheaders = not os.path.exists(SAMPLE_LOG_FILE) or os.path.getsize(SAMPLE_LOG_FILE) == 0
-		# line   = sorted(caller_log.items())
-		# line   = list(reversed(line))
-		# headers = '\t'.join([i[0] for i in line]) + '\n'
-		# line   = '\t'.join([str(i[1]) for i in line]) + '\n'
 
-		# with open(SAMPLE_LOG_FILE, 'a') as file1:
-		#    if writeheaders: file1.write(headers)
-		#    file1.write(line)
 		if not writeheaders:
 			with open(SAMPLE_LOG_FILE, 'r') as file1:
 				reader = csv.DictReader(file1, delimiter = '\t')
@@ -693,8 +590,8 @@ class SomaticSniper(Caller):
 			output = readcount_output)
 		label = "SomaticSniper: Generate Readcounts"
 		# Note: The output for this command will be saved in the console log file.
-		self.runCallerCommand(readcount_command, label, readcount_output, show_output = False)
-		self._captureReadcountOutput(readcount_output)
+		self.runCallerCommand(readcount_command, label, expected_output = readcount_output, filename = readcount_output)
+		#self._captureReadcountOutput(readcount_output)
 
 		return readcount_output
 
@@ -852,11 +749,20 @@ class Strelka(Caller):
 			binSize = 25000000                          Jobs are parallelized over segments of the reference genome no larger than this size"""
 		return strelka_configuration_options
 
-	def runBackwardsCompatability(self):
-		prefix = "{0}_vs_{1}.".format(sample['NormalID'], sample['TumorID'])
+	def renameOutputFiles(self):
 		for source in self.full_output:
 			folder, basename = os.path.split(source)
-			destination = os.path.join(folder, prefix + basename)
+			if "all.somatic.indels" in basename:
+				basename = "all.somatic.indels"
+			elif "all.somatic.snvs" in basename:
+				basename = "all.somatic.snps"
+			elif "passed.somatic.indels" in basename:
+				basename = "passed.somatic.indels"
+			else:
+				basename = "passed.somatic.snps"
+
+			destination = self.prefix + basename + ".strelka.vcf"
+
 			shutil.copyfile(source, destination)
 
 
@@ -963,10 +869,11 @@ class Varscan(Caller):
 		status = self.runCallerCommand(process_command, label, expected_output)
 		return status
 
-	def runBackwardsCompatability(self, sample):
+	def renameOutputFiles(self):
 		for source in os.listdir(self.output_folder):
-			destination = os.path.join(self.output_folder, source.replace('varscan', 'raw'))
-			abs_source = os.path.join(output_folder, source)
+			#destination = os.path.join(self.output_folder, source.replace('varscan', 'raw'))
+			destination = os.path.splitext(source)[0] + ".varscan.vcf"
+			abs_source = os.path.join(self.output_folder, source)
 			shutil.copyfile(abs_source, destination)
 
 
@@ -974,7 +881,7 @@ class HaplotypeCaller(Caller):
 	__name__ = "HaplotypeCaller"
 
 	def runCallerWorkflow(self, sample, options, workflow = 'DNA-seq'):
-		checkdir(self.output_folder, True)
+		filetools.checkDir(self.output_folder, True)
 
 		self.dna_output = self.prefix + ".DNA.raw_snps_indels.vcf"
 		self.rna_output = self.prefix + ".RNA.raw_snps_indels.vcf"
@@ -1719,7 +1626,7 @@ class SampleBAMFiles:
 		"""
 		file_exists = os.path.isfile(filename)
 		if file_exists and expected_md5sum is not None:
-			file_md5sum = generate_file_md5(filename)
+			file_md5sum = filetools.generateFileMd5(filename)
 			file_md5sum_status = file_md5sum == expected_md5sum
 		else: file_md5sum_status = True
 
@@ -1798,7 +1705,7 @@ class GenomicsPipeline:
 		if message is not None:
 			raise FileNotFoundError(message)
 
-		sample_list = readTSV(_sample_filename)
+		sample_list = tabletools.Table(_sample_filename)
 
 		# ----------------------------------------Process Config ------------------------------------------
 		config = configparser.ConfigParser()
@@ -1817,9 +1724,9 @@ class GenomicsPipeline:
 		cnv_folder  = os.path.join(cnv_folder,  patientID)
 		temp_folder = os.path.join(temp_folder, patientID)
 
-		checkdir(snv_folder)
-		checkdir(cnv_folder)
-		checkdir(temp_folder)
+		filetools.checkDir(snv_folder)
+		filetools.checkDir(cnv_folder)
+		filetools.checkDir(temp_folder)
 
 	@staticmethod
 	def _useSample(sample):
