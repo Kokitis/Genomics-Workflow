@@ -104,7 +104,6 @@ class Caller:
 	def __init__(self, sample, options):
 
 		##### Define commonly-used variables
-		self.caller_name = self.__name__
 		self.reference  = options['Reference Files']['reference genome']
 		self.dbSNP      = options['Reference Files']['dbSNP']
 		self.cosmic     = options['Reference Files']['COSMIC']
@@ -160,6 +159,7 @@ class Caller:
 		
 		##### Update the caller log
 		program_stop = now()
+		
 		self.updateSampleLog(sample, program_start, program_stop)
 
 	def runCallerCommand(self, command, label = "", expected_output = None, show_output = False, filename = None):
@@ -280,38 +280,41 @@ class Caller:
 
 		return status
 
-	@staticmethod
-	def _fileNotFound(filename):
-		print("Could not locate ", filename)
-
 
 class DepthOfCoverage(Caller):
-	__name__ = "DepthOfCoverage"
 
-	def runCallerWorkflow(self, sample, options):
+	def setCustomEnvironment(self, sample, options):
+		self.caller_name = "DepthOfCoverage"
 		self.gene_list = os.path.join(
 			getPipelineFolder('reference'),
 			"GRCh38-hg38-NCBIRefSeq-UCSCRefSeq-allFieldsFromTable-WholeGene.txt.sorted.tsv"
 		)
-		self.final_output = self.prefix + ".sample_gene_summary"
-		self.full_output = [
-			"", '.sample_cumulative_coverage_counts', ".sample_cumulative_coverage_proportions",
-			".sample_gene_summary",".sample_interval_statistics", ".sample_interval_summary",
-			".sample_statistics", ".sample_summary"
+		self.final_output = self.abs_prefix + ".sample_gene_summary"
+		full_output_suffixes = [
+			"", 
+			'.sample_cumulative_coverage_counts', 
+			".sample_cumulative_coverage_proportions",
+			".sample_gene_summary",
+			".sample_interval_statistics", 
+			".sample_interval_summary",
+			".sample_statistics", 
+			".sample_summary"
 		]
-		self.full_output = [self.prefix + i for i in self.full_output]
-		
+		self.full_output = [self.abs_prefix + i for i in full_output_suffixes]
+
+	def runCallerWorkflow(self, sample, options):
 		self.status = self.determineDepthOfCoverage(sample, output_filename = self.final_output)
 
 	def determineDepthOfCoverage(self, sample, output_filename):
-		prefix = 
+
 		command = """java -jar {GATK} \
-			-T DepthOfCoverage \
-			-R {reference} \
-			-o {prefix} \
-			-I {normal} -I {tumor} \
-			-geneList {genes} \
-			-L {targets}""".format(
+			--analysis_type DepthOfCoverage \
+			--reference_sequence {reference} \
+			--out {prefix} \
+			--input_file {normal} \
+			--input_file {tumor} \
+			--calculateCoverageOverGenes {genes} \
+			--intervals {targets}""".format(
 				GATK =      self.gatk_program,
 				reference = self.reference,
 				prefix =    self.abs_prefix,
@@ -326,20 +329,20 @@ class DepthOfCoverage(Caller):
 
 
 class MuSE(Caller):
-	__name__ = "MuSE"
 
-	def runCallerWorkflow(self, sample, options):
+	def setCustomEnvironment(self, sample, options):
+		self.caller_name = "MuSE"
 		#Define relevant filenames
 		self.call_output = '.'.join(self.abs_prefix.split('.')[:-1]) + '.MuSE.txt' #remove caller name form prefix
-		self.sump_output = os.path.splitext(self.call_output) + ".vcf"
+		self.sump_output = os.path.splitext(self.call_output)[0] + ".vcf"
 
+		self.full_output = [self.call_output, self.sump_output]
+		self.final_output= self.sump_output
+
+	def runCallerWorkflow(self, sample, options):
 		#Run the caller commands
 		self.call_output_status = self.runMuseCall(sample)
 		self.sump_output_status = self.runMuseSump()
-
-		self.full_output = [self.call_output, self.sump_output]
-		
-		self.final_output= self.sump_output
 
 	def runMuseCall(self, sample):
 
@@ -369,19 +372,21 @@ class MuSE(Caller):
 
 
 class MuTect(Caller):
-	__name__ = "MuTect"
 
-	def runCallerWorkflow(self, sample, options):
-		
+	def setCustomEnvironment(self, sample, options):
+		self.caller_name = "MuTect"
+		self.java_program = "/home/upmc/Downloads/jre1.7.0_80/bin/java"
 		self.variant_file = self.prefix + '.mutect117.vcf'
 		self.coverage_file= self.prefix + '.mutect117.coverage.wiggle.txt'
 		self.final_output = self.coverage_file
 		self.full_output = [self.variant_file, self.coverage_file]
-		self.runMutect(sample)
+
+	def runCallerWorkflow(self, sample, options):
+		caller_status = self.runMutect(sample)
 
 	def runMutect(self, sample):
 		# MuTect 1.1.7 requires java 7, rather than the currently installed java 8
-		java_program = "/home/upmc/Downloads/jre1.7.0_80/bin/java"
+		
 		command = """{java} -jar {program} \
 			--analysis_type MuTect \
 			--reference_sequence {reference} \
@@ -392,7 +397,7 @@ class MuTect(Caller):
 			--input_file:tumor {tumor} \
 			--out {output} \
 			--coverage_file {coverage}""".format(
-				java =      java_program,
+				java =      self.java_program,
 				program =   self.program,
 				reference = self.reference,
 				dbsnp =     self.dbSNP,
@@ -403,16 +408,20 @@ class MuTect(Caller):
 				normal =    sample['NormalBAM'],
 				tumor =     sample['TumorBAM'])
 		label = "Running the original mutect..."
-		status = self.runCallerCommand(command, label, self.variant_file)
+		output_result = self.runCallerCommand(command, label, self.variant_file)
+		return output_result
 
 
 class MuTect2(Caller):
-	__name__ = "MuTect2"
+
+	def setCustomEnvironment(self, sample, options):
+		self.caller_name = "MuTect2"
+		self.final_output = self.prefix + '.vcf'
+		self.full_output = [self.final_output]
 
 	def runCallerWorkflow(self, sample, options):
-		self.final_output = self.prefix + '.vcf'
 		self.status = self.runMutect2(sample)
-		self.full_output = [self.final_output]
+		
 
 	def runMutect2(self, sample):
 		mutect2_command = """java {memory} -jar {GATK} \
@@ -440,13 +449,10 @@ class MuTect2(Caller):
 
 
 class SomaticSniper(Caller):
-	__name__ = "SomaticSniper"
 
-	def runCallerWorkflow(self, sample, options):
-		# Will print "Couldn't find single-end mapping quality. Check to see if the SM tag is in BAM."
-		# This doesn't invalidate results, but try not to use single-end mapping quality in output
-		
+	def setCustomEnvironment(self, sample, options):
 		# Define the relevant filenames
+		self.caller_name = "SomaticSniper"
 		somaticsniper_folder= self.program # for readability
 		script_folder 		= os.path.join(somaticsniper_folder, 'src', 	'scripts')
 		self.program 		= os.path.join(somaticsniper_folder, 'build', 	'bin', 	'bam-somaticsniper')
@@ -461,7 +467,11 @@ class SomaticSniper(Caller):
 
 		self.raw_variants 	= self.abs_prefix + '.vcf'
 		self.hq_variants 	= self.abs_prefix + '.hq.vcf'
-		self.lq_variants 	= self.abs_prefix + '.lq.vcf'
+		self.lq_variants 	= self.abs_prefix + '.lq.vcf'		
+
+	def runCallerWorkflow(self, sample, options):
+		# Will print "Couldn't find single-end mapping quality. Check to see if the SM tag is in BAM."
+		# This doesn't invalidate results, but try not to use single-end mapping quality in output
 
 		self.variant_discovery_status = self.runVariantDiscovery(sample)
 		# Generate pileup files
@@ -643,37 +653,36 @@ class SomaticSniper(Caller):
 
 
 class Strelka(Caller):
-	__name__ = "Strelka"
 
-	def runCallerWorkflow(self, sample, options):
-		# super().__init__(self, sample, options, 'Strelka')
-		
+	def setCustomEnvironment(self, sample, options):
+		self.caller_name = "Strelka"
 		patient_folder = os.path.dirname(self.output_folder)
 
 		strelka_folder 						= os.path.join(patient_folder, 'Strelka')
 		self.results_folder 				= os.path.join(patient_folder, 'Strelka', 	'results')
 		self.strelka_project_config_file 	= os.path.join(patient_folder, 'strelka_configuration.ini')
-		self.config_script 					= os.path.join(self.program, 	'bin', 		'configureStrelkaWorkflow.pl')
+		self.config_script 					= os.path.join(self.program,   'bin', 		'configureStrelkaWorkflow.pl')
 		
-		#self.final_output 	= os.path.join(self.results_folder, 'passed.somatic.snvs.vcf')
-		
-		# Strelka won't run if the output folder already exists.
-		if not os.path.exists(self.final_output) and os.path.exists(self.output_folder):
-			shutil.rmtree(self.output_folder)
-
-		# --------------------------------- Configure Strelka --------------------------------
-		# change working directory
-		config_script = self.generateStrelkaConfigFile(self.strelka_project_config_file)
-		self.configureStrelka(sample, self.strelka_project_config_file)
-		output_files = self.runStrelka()
-		self.full_output = [
+		full_output = [
 			'all.somatic.indels.vcf',
 			'all.somatic.snvs.vcf',
 			'passed.somatic.indels.vcf',
 			'passed.somatic.snvs,vcf'
 		]
-		self.full_output = [os.path.join(self.results_folder, fn) for fn in self.full_output]
-		# self.sample_format = "{0}_vs_{1}".format(sample['NormalID'], sample['SampleID'])
+		self.full_output = [os.path.join(self.results_folder, fn) for fn in full_output]
+	
+	def runCallerWorkflow(self, sample, options):
+		# Strelka won't run if the output folder already exists.
+		if not os.path.exists(self.final_output) and os.path.exists(self.output_folder):
+			shutil.rmtree(self.output_folder)
+
+		# --------------------------------- Configure Strelka --------------------------------
+		config_script = self.generateStrelkaConfigFile(self.strelka_project_config_file)
+		
+		self.configureStrelka(sample, self.strelka_project_config_file)
+		
+		output_files = self.runStrelka()
+
 
 	def generateStrelkaConfigFile(self, configuration_file):
 		strelka_configuration_options = self.getStrelkaConfiguration()
@@ -763,11 +772,9 @@ class Strelka(Caller):
 
 
 class Varscan(Caller):
-	__name__ = "Varscan"
 
-	def runCallerWorkflow(self, sample, options):
-		# super().__init__(self, sample, options, 'Varscan')
-
+	def setCustomEnvironment(self, sample, options):
+		self.caller_name = "Varscan"
 		self.raw_snps   = self.prefix + '.snp.vcf'
 		self.raw_indels = self.prefix + '.indel.vcf'
 
@@ -778,14 +785,6 @@ class Varscan(Caller):
 		self.loh        = self.prefix + '.snp.LOH.vcf'
 		self.loh_hc     = self.prefix + '.snp.LOH.hc.vcf'
 
-		# normal_pileup  = self.generatePileup(sample['NormalBAM'], sample['NormalID'])
-		# tumor_pileup   = self.generatePileup(sample['TumorBAM'], sample['SampleID'])
-		pileup_status = self.generateSinglePileup(sample)
-		pileup_file = pileup_status['outputFiles']
-		variant_discovery_status = self.runSingleVariantDiscovery(pileup_file)
-
-		processing_status = self.postProcessing()
-		
 		self.full_output = [
 			self.raw_snps, 
 			self.raw_indels,
@@ -797,6 +796,14 @@ class Varscan(Caller):
 			self.loh_hc]
 
 		self.final_output = self.somatic_hc
+	
+	def runCallerWorkflow(self, sample, options):
+
+		pileup_status = self.generateSinglePileup(sample)
+		pileup_file = pileup_status['outputFiles']
+		variant_discovery_status = self.runSingleVariantDiscovery(pileup_file)
+
+		processing_status = self.postProcessing()
 
 	def generateSinglePileup(self, sample):
 		pileup = os.path.join(
@@ -834,6 +841,7 @@ class Varscan(Caller):
 				output  = self.abs_prefix)
 		output_result = self.runCallerCommand(command, "RunSingleVariantDiscovery", expected_output)
 		return output_result
+	
 	def runDoubleVariantDiscovery(self, normal_pileup, tumor_pileup):
 		command = """java {memory} -jar {varscan} somatic {normal} {tumor} \
 			--output-snp {snp} \
@@ -878,12 +886,10 @@ class Varscan(Caller):
 class HaplotypeCaller(Caller):
 	__name__ = "HaplotypeCaller"
 
-	def runCallerWorkflow(self, sample, options, workflow = 'DNA-seq'):
-		filetools.checkDir(self.output_folder, True)
+	def setCustomEnvironment(self, sample, options):
+		self.caller_name = "HaplotypeCaller"
 
-		self.dna_output = self.abs_prefix + ".DNA.raw_snps_indels.vcf"
-		self.rna_output = self.abs_prefix + ".RNA.raw_snps_indels.vcf"
-		self.filtered_variants = os.path.splitext(self.rna_output)[0] + ".filtered.vcf"
+	def runCallerWorkflow(self, sample, options, workflow = 'DNA-seq'):
 
 		if workflow == 'DNA-seq':
 			call_status = self.dnaWorkflow(sample, options)
@@ -894,7 +900,7 @@ class HaplotypeCaller(Caller):
 		self.full_output = [self.final_output]
 
 	def dnaWorkflow(self, sample, options):
-		raw_variant_file = = self.abs_prefix + ".RNA.raw_variants.vcf"
+		raw_variant_file = self.abs_prefix + ".RNA.raw_variants.vcf"
 		call_status = self.dnaVariantDiscovery(sample, options, raw_variant_file)
 		return call_status
 
@@ -966,9 +972,10 @@ class HaplotypeCaller(Caller):
 
 
 class BaseQualityScoreRecalibration(Caller):
-	__name__ = "BaseQualityScoreRecalibration"
 
-	def runCallerWorkflow(self, sample, options):
+	def setCustomEnvironment(self, sample, options):
+		self.caller_name = "BaseQualityScoreRecalibration"
+		
 		self.output_folder = os.path.join(
 			getPipelineFolder('rna-seq'), sample['PatientID']
 		)
@@ -992,13 +999,6 @@ class BaseQualityScoreRecalibration(Caller):
 		self.realigned_bam          = os.path.join(
 			self.output_folder, sample['SampleID'] + ".RNA.recalibrated.bam"
 		)
-		
-		raw_bam 		     = self._getRNABAM(sample)
-		cigar__status        = self.splitCigarReads()
-		recalibration_status = self.generateRecalibrationTable()
-		realign_status       = self.recalibrateBAM()
-		covariate_status     = self.generateCovariateTable()
-		recalibration_status = self.generateRecalibrationPlots()
 
 		self.final_output   = realigned_bam
 		self.full_output    = [
@@ -1008,6 +1008,16 @@ class BaseQualityScoreRecalibration(Caller):
 			self.cigar_bam,
 			self.realigned_bam
 		]
+
+	def runCallerWorkflow(self, sample, options):
+
+		
+		raw_bam 		     = self._getRNABAM(sample)
+		cigar__status        = self.splitCigarReads()
+		recalibration_status = self.generateRecalibrationTable()
+		realign_status       = self.recalibrateBAM()
+		covariate_status     = self.generateCovariateTable()
+		recalibration_status = self.generateRecalibrationPlots()
 
 	@staticmethod
 	def _getRNABAM(sample):
