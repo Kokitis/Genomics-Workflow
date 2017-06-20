@@ -9,9 +9,10 @@ import configparser
 
 from pprint import pprint
 from argparse import ArgumentParser
-GITHUB_FOLDER = os.path.dirname(os.path.realpath(__file__))
+GITHUB_FOLDER = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
 import sys
 sys.path.append(GITHUB_FOLDER)
+print(GITHUB_FOLDER)
 import pytools.systemtools as systemtools
 import pytools.filetools as filetools
 import pytools.tabletools as tabletools
@@ -564,7 +565,7 @@ class SomaticSniper(Caller):
 			pileup = pileup_file,
 			output = output_file)
 		label = "SomaticSniper: removeLOH"
-		self.runCallerCommand(command, label, output_file)
+		self.runCallerCommand(command, label, output_file, show_output = True)
 		return output_file
 
 	def readcounts(self, loh_file, tumor_bam):
@@ -628,7 +629,7 @@ class SomaticSniper(Caller):
 			snpfilter = loh_file,
 			readcounts = readcounts)
 		label = "SomaticSniper: Remove False Positives"
-		self.runCallerCommand(fp_command, label, false_positive_output)
+		self.runCallerCommand(fp_command, label, false_positive_output, show_output = True)
 		return false_positive_output
 
 	def calculateConfidence(self, vcf_file):
@@ -646,7 +647,7 @@ class SomaticSniper(Caller):
 				lq = self.lq_variants
 		)
 		label = "SomaticSniper: Filter lq Variants"
-		status = self.runCallerCommand(command, label, [self.hq_variants, self.lq_variants])
+		status = self.runCallerCommand(command, label, [self.hq_variants, self.lq_variants], show_output = True)
 		return status
 
 
@@ -1680,7 +1681,7 @@ class GenomicsPipeline:
 		LOGGER.info("Copynumber Callers: " + ', '.join(copynumber_callers_list))
 		LOGGER.info("Running through the genomics pipeline with {0} samples.".format(len(sample_list)))
 		# sample_list = []
-		for index, sample in enumerate(sample_list):
+		for index, sample in sample_list:
 			print(
 				"({0}/{1}) {2}\t{3}".format(
 					index + 1,
@@ -1930,7 +1931,7 @@ if __name__ == "__main__":
 	caller_status_filename  = os.path.join(PIPELINE_DIRECTORY, "0_config_files", "caller_status.tsv")
 	
 	if CMD_PARSER.debug:
-		sample_filename = os.path.join(os.getcwd(), "debug_sample_list.tsv")
+		sample_filename = os.path.join(PIPELINE_DIRECTORY, "debug_sample_list.tsv")
 		# somatic_callers = [
 		#   'MuSE', 'Varscan', 'Strelka', 'SomaticSniper', 'Mutect2', "HaplotypeCaller", "UnifiedGenotyper"]
 		# copynumber_callers = ['Varscan', 'CNVkit', 'FREEC']
