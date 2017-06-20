@@ -33,6 +33,8 @@ BACKWARDS_COMPATIBLE = False
 # Whether to overwrite any existing files
 FORCE_OVERWRITE = False
 
+DEBUG = True
+
 def configurePipelineLogger():
 
 	logger_filename = os.path.join(PIPELINE_DIRECTORY, '0_config_files', 'pipeline_log.log')
@@ -75,60 +77,34 @@ def getsize(path, total = True):
 	if total: sizes = sum(sizes)
 	return sizes
 
+def getPipelineFolder(step, patientId, caller_name = None):
 
+	if step == 'somatic-variants':
+		subfolders = ["3_called_variants", patientId, caller_name]
+	elif step == 'copynumber-variants':
+		subfolders = ["4_called_cnvs", patientId, caller_name]
+	elif step == 'temporary':
+		subfolders = ['5_temporary_files', patientId]
+	elif step == 'bam-files':
+		subfolders = []
+	elif step == 'reference':
+		pass
+	elif step == 'rna-seq':
+		pass
+
+	pipeline_folder = os.path.join(PIPELINE_DIRECTORY, *subfolders)
+	filetools.checkDir(pipeline_folder)
+	return pipeline_folder
 # ----------------------------------------------------------------------------------------------------
 # ------------------------------------- Variant Caller Pipeline --------------------------------------
 # ----------------------------------------------------------------------------------------------------
 
 
 class Caller:
-	def __init__(self, sample, options, DEBUG = False):
-		# self.caller_name = caller_name
-		program_start = now()
+	def __init__(self, sample, options):
 
-		# Overwrites pre-existing files.
-		self.force_overwrite = FORCE_OVERWRITE
-
-		self.setCallerEnvironment(sample, options)
-		
-		print(generateTimestamp() + ': ' + self.caller_name)
-		
-		if FORCE_OVERWRITE and os.path.exists(self.output_folder):
-			shutil.rmtree(self.output_folder)
-		filetools.checkDir(self.output_folder)
-
-		if DEBUG:
-			print("Running ", self.caller_name)
-			print("\tprogram location: ", self.program)
-			print("\toutput folder: ", self.output_folder)
-			print("\ttemp folder: ", self.temp_folder)
-			print("\tcaller output prefix: ", self.prefix)
-
-		self.readme_file = self.createReadMe(sample)
-		self.runCallerWorkflow(sample, options)
-
-		self.renameOutputFiles()
-		
-		program_stop = now()
-		self.updateSampleLog(sample, program_start, program_stop)
-
-	def setCallerEnvironment(self, sample, options):
-		""" Creates a set of object variables that are commonly used by difference callers.
-			Parameters
-			----------
-				sample: dict<>
-					The patient's information.
-				options: dict<>
-					The options for the pipeline.
-		"""
-		"""
-		:param sample: 
-		:param options: 
-		:return: 
-		"""
+		##### Define commonly-used variables
 		self.caller_name = self.__name__
-		# pprint(options)
-		# self.console_log_file = "{0}.console_log.txt".format(self.caller_name)
 		self.reference  = options['Reference Files']['reference genome']
 		self.dbSNP      = options['Reference Files']['dbSNP']
 		self.cosmic     = options['Reference Files']['COSMIC']
@@ -142,75 +118,75 @@ class Caller:
 		self.min_somatic_quality = options['Parameters']['SOMATIC_QUALITY']
 		self.min_coverage        = options['Parameters']['MIN_COVERAGE']
 
-		self.output_folder = os.path.join(
-			options['Pipeline Options']['somatic pipeline folder'],
-			sample['PatientID'], self.caller_name)
+		##### Define the paths and common partial filenames
+		self.output_folder = getPipelineFolder('somatic-variants', sample['PatientID'], self.caller_name)
 		
-		self.prefix = os.path.join(
-			self.output_folder,
-			"{normal}_vs_{tumor}.{prefix}".format(
+		self.base_prefix = "{normal}_vs_{tumor}.{prefix}".format(
 			tumor   = sample['SampleID'], 
 			normal  = sample['NormalID'],
-			prefix = self.caller_name.lower())
+			prefix = self.caller_name.lower()
 		)
-		
-		self.temp_folder = os.path.join(
-			options['Pipeline Options']['temporary folder'], 
-			sample['PatientID']
-		)
-
-		self.command_list = list()
+		self.abs_prefix = os.path.join(self.output_folder, self.base_prefix)
+	
+		self.temp_folder = getPipelineFolder('temporary', sample['PatientId'])
 		self.temp_files = list()
 		
 		self.setCustomEnvironment(sample, options)
 		self.console_file = os.path.join(
 			self.output_folder,
-			"{0}.{1}.console_log.txt".format(
-				self.caller_name, now().isoformat().split('T')[0]
-			)
+			self.caller_name + ".console_log.txt"
 		)
+		self.readme_filename = os.path.join(
+			self.output_folder,
+			self.caller_name + ".readme.txt"
+		)
+		
+		if FORCE_OVERWRITE and os.path.exists(self.output_folder):
+			shutil.rmtree(self.output_folder)
 
-		filetools.checkDir(self.output_folder, True)
-		filetools.checkDir(self.temp_folder, True)
 
-		#Set default values for any object atributes.
+		if DEBUG:
+			print("Running ", self.caller_name)
+			print("\tprogram location: ", self.program)
+			print("\toutput folder: ", self.output_folder)
+			print("\ttemp folder: ", self.temp_folder)
+			print("\tcaller output prefix: ", self.prefix)
+
+		self.createReadmeFile(sample)
+
+		self.runCallerWorkflow(sample, options)
+
+		self.renameOutputFiles()
+		
+		##### Update the caller log
+		program_stop = now()
+		self.updateSampleLog(sample, program_start, program_stop)
 
 	def runCallerCommand(self, command, label = "", expected_output = None, show_output = False, filename = None):
 		if expected_output is None:
 			expected_output = []
 		elif isinstance(expected_output, str):
 			expected_output = [expected_output]
-		self.command_list.append(command)
-
-
 
 		files_missing = any([not os.path.exists(fn) for fn in expected_output])
 		
 		if label == "":
 			label = self.caller_name + ".runCallerCommand"
 
-		timestamp = generateTimestamp()
-		print('\t' + timestamp + ": " + label)
-		
-		if len(expected_output) == 0 or files_missing:
-			self.addToReadMe(command, label, expected_output)
-			print("\texpected Output: ")
-			for fn in expected_output:
-				print("\t\tFile Exists:", os.path.exists(fn), "\t", fn)
-
 		if filename is None:
 			_terminal_file = self.console_file
 		else:
 			_terminal_file = filename
 
-		call_process = systemtools.Terminal(
+		self.addToReadme(command, label, expected_output)
+		caller_process = systemtools.Terminal(
 			command,
 			label = label,
 			expected_output = expected_output,
 			filename = _terminal_file,
 			show_output = show_output)
 
-		command_status = call_process.status
+		command_status = caller_process.getStatus()
 		return command_status
 
 	def generatePileup(self, bam_file, bam_name):
@@ -224,47 +200,29 @@ class Caller:
 				self.caller_name.lower()
 			)
 		)
+		self.temp_files.append(output_file)
 		pileup_command = "samtools mpileup -q 1 -B -f {reference} {sample} > {output}".format(
 			reference = self.reference,
 			sample = bam_file,
 			output = output_file)
-		
-		# command = """samtools mpileup -f {reference} -q 1 -B {normal} {tumor} > {pileup}""".format(
-		#    reference = self.reference,
-		#    normal = sample['NormalBAM'],
-		#    tumor = sample['TumorBAM'],
-		#    pileup = pileup)
 
 		label = "Generate MPileup File"
 		self.runCallerCommand(pileup_command, label, output_file, show_output = True)
 		return output_file
 
-	@staticmethod
-	def runBackwardsCompatibility(sample):
-		""" Renames the output files to be compatible with previous versions of the pipeline. """
-		pass
-
 	def renameOutputFiles(self):
 		pass
 
-	def createReadMe(self, sample):
-		candidates = [i for i in os.listdir(self.output_folder) if '.readme.txt' in i]
-		current_datetime = generateTimestamp()
-		if len(candidates) == 0:
+	def createReadMeFile(self, sample):
 
-
-			readme_filename = "{0}.{1}.readme.txt".format(self.caller_name, current_datetime)
-			readme_filename = os.path.join(self.output_folder, readme_filename)
-		else:
-			readme_filename = list(reversed(sorted(candidates)))[0]
-
-		with open(readme_filename, 'w') as readme_file:
+		with open(self.readme_filename, 'a') as readme_file:
 			readme_file.write(self.caller_name + '\n')
-			readme_file.write("Started the caller at {0}\n".format(current_datetime))
+			readme_file.write("Started the caller at {0}\n".format(now.isoformat()))
 
 			for key, value in sample.items():
 				readme_file.write("{0:<15}{1}\n".format(key + ':', value))
-		return readme_filename
+
+			return readme_filename
 
 	def addToReadMe(self, command, label, expected_output):
 		if not os.path.exists(self.readme_file): return None
@@ -273,7 +231,7 @@ class Caller:
 		num = line_len - (len(label) + len(current_datetime.isoformat()))
 		linebreak = '#' * int(num / 2) + "{0} {1}".format(current_datetime.isoformat(), label) + "#" * int(num/2) + '\n'
 
-		with open(self.readme_file, 'a') as readme:
+		with open(self.readme_filename, 'a') as readme:
 			readme.write(linebreak)
 			readme.write(command + '\n')
 			if isinstance(expected_output, list):
@@ -332,11 +290,8 @@ class DepthOfCoverage(Caller):
 
 	def runCallerWorkflow(self, sample, options):
 		self.gene_list = os.path.join(
-			"home",
-			"upmc",
-			"Documents",
-			"Reference",
-			"/GRCh38-hg38-NCBIRefSeq-UCSCRefSeq-allFieldsFromTable-WholeGene.txt.sorted.tsv"
+			getPipelineFolder('reference'),
+			"GRCh38-hg38-NCBIRefSeq-UCSCRefSeq-allFieldsFromTable-WholeGene.txt.sorted.tsv"
 		)
 		self.final_output = self.prefix + ".sample_gene_summary"
 		self.full_output = [
@@ -346,10 +301,10 @@ class DepthOfCoverage(Caller):
 		]
 		self.full_output = [self.prefix + i for i in self.full_output]
 		
-		self.determineDepthOfCoverage(sample)
+		self.status = self.determineDepthOfCoverage(sample, output_filename = self.final_output)
 
-	def determineDepthOfCoverage(self, sample):
-
+	def determineDepthOfCoverage(self, sample, output_filename):
+		prefix = 
 		command = """java -jar {GATK} \
 			-T DepthOfCoverage \
 			-R {reference} \
@@ -359,56 +314,58 @@ class DepthOfCoverage(Caller):
 			-L {targets}""".format(
 				GATK =      self.gatk_program,
 				reference = self.reference,
-				prefix =    self.prefix,
+				prefix =    self.abs_prefix,
 				normal =    sample['NormalBAM'],
 				tumor =     sample['TumorBAM'],
 				targets =   sample['ExomeTargets'],
 				genes =     self.gene_list)
 		label = "DepthofCoverage"
-		self.runCallerCommand(command, label, self.final_output)
+		result = self.runCallerCommand(command, label, output_filename)
+
+		return result
 
 
 class MuSE(Caller):
 	__name__ = "MuSE"
 
 	def runCallerWorkflow(self, sample, options):
-		# self.caller_name = 'MuSE'
-		# super().__init__(self, sample, options, caller_name)
+		#Define relevant filenames
+		self.call_output = '.'.join(self.abs_prefix.split('.')[:-1]) + '.MuSE.txt' #remove caller name form prefix
+		self.sump_output = os.path.splitext(self.call_output) + ".vcf"
 
-		self.call_output = self.runMuseCall(sample)
-		self.sump_output = os.path.splitext(self.call_output)[0] + '.vcf'
-		sump_output = self.runMuseSump(self.call_output)
+		#Run the caller commands
+		self.call_output_status = self.runMuseCall(sample)
+		self.sump_output_status = self.runMuseSump()
 
 		self.full_output = [self.call_output, self.sump_output]
+		
 		self.final_output= self.sump_output
 
 	def runMuseCall(self, sample):
-		prefix = '.'.join(self.prefix.split('.')[:-1])
-		muse_call_output = prefix + '.MuSE.txt'
+
 		call_command = "{program} call -O {prefix} -f {reference} {tumor} {normal}".format(
-			program = self.program,
-			reference = self.reference,
-			prefix = prefix,
-			tumor = sample['TumorBAM'],
-			normal = sample['NormalBAM'])
+			program 	= self.program,
+			reference 	= self.reference,
+			prefix 		= self.call_output.replace('.MuSE.txt', ''),
+			tumor 		= sample['TumorBAM'],
+			normal 		= sample['NormalBAM'])
 		label = "MuSE Call"
-		self.runCallerCommand(call_command, label, muse_call_output)
+		output_result = self.runCallerCommand(call_command, label, self.call_output)
 
-		return muse_call_output
+		return output_result
 
-	def runMuseSump(self, call_output):
+	def runMuseSump(self):
 		
-		# muse_sump_output = output_prefix + ".MuSe.vcf"
 		sump_command = "{program} sump -I {call_output} -E -D {dbSNP} -O {output}".format(
-			program = self.program,
-			prefix = self.prefix,
-			dbSNP = self.dbSNP,
-			call_output = call_output,
-			output = self.sump_output)
+			program 	= self.program,
+			prefix 		= self.prefix,
+			dbSNP 		= self.dbSNP,
+			call_output = self.call_output,
+			output 		= self.sump_output)
 		label = "MuSE Sump"
-		status = self.runCallerCommand(sump_command, label, self.sump_output)
+		output_result = self.runCallerCommand(sump_command, label, self.sump_output)
 
-		return status
+		return output_result
 
 
 class MuTect(Caller):
@@ -454,7 +411,7 @@ class MuTect2(Caller):
 
 	def runCallerWorkflow(self, sample, options):
 		self.final_output = self.prefix + '.vcf'
-		mutect2_output = self.runMutect2(sample)
+		self.status = self.runMutect2(sample)
 		self.full_output = [self.final_output]
 
 	def runMutect2(self, sample):
@@ -477,9 +434,9 @@ class MuTect2(Caller):
 			targets     = sample['ExomeTargets'],
 			output      = self.final_output)
 		label = "MuTect2 Variant Discovery"
-		status = self.runCallerCommand(mutect2_command, label, self.final_output)
+		output_result = self.runCallerCommand(mutect2_command, label, self.final_output)
 
-		return status
+		return output_result
 
 
 class SomaticSniper(Caller):
@@ -488,27 +445,28 @@ class SomaticSniper(Caller):
 	def runCallerWorkflow(self, sample, options):
 		# Will print "Couldn't find single-end mapping quality. Check to see if the SM tag is in BAM."
 		# This doesn't invalidate results, but try not to use single-end mapping quality in output
-		# super().__init__(self, sample, options, 'SomaticSniper')
 		
-		self.readcount_program = options['Programs']['bam-readcount']
-		self.samtools_program = options['Programs']['samtools-0.1.6']
-		self.somaticsniper_folder = self.program
-		self.program = os.path.join(self.somaticsniper_folder, 'build', 'bin', 'bam-somaticsniper')
-		self.script_folder = os.path.join(self.somaticsniper_folder, 'src', 'scripts')
+		# Define the relevant filenames
+		somaticsniper_folder= self.program # for readability
+		script_folder 		= os.path.join(somaticsniper_folder, 'src', 	'scripts')
+		self.program 		= os.path.join(somaticsniper_folder, 'build', 	'bin', 	'bam-somaticsniper')
+		self.readcount_program 	= options['Programs']['bam-readcount']
+		self.samtools_program 	= options['Programs']['samtools-0.1.6']
 
-		self.snpfilter_script= os.path.join(self.script_folder, 'snpfilter.pl')
-		self.readcount_script =os.path.join(self.script_folder, 'prepare_for_readcount.pl')
-		self.hc_script =       os.path.join(self.script_folder, 'highconfidence.pl')
-		self.fpfilter  =       os.path.join(self.script_folder, 'fpfilter.pl')
 
-		self.raw_variants = self.prefix + '.vcf'
-		self.hq_variants = self.prefix + '.hq.vcf'
-		self.lq_variants = self.prefix + '.lq.vcf'
+		self.snpfilter_script= os.path.join(script_folder, 'snpfilter.pl')
+		self.readcount_script= os.path.join(script_folder, 'prepare_for_readcount.pl')
+		self.hc_script 		=  os.path.join(script_folder, 'highconfidence.pl')
+		self.fpfilter  		=  os.path.join(script_folder, 'fpfilter.pl')
 
-		raw_output = self.runVariantDiscovery(sample)
+		self.raw_variants 	= self.abs_prefix + '.vcf'
+		self.hq_variants 	= self.abs_prefix + '.hq.vcf'
+		self.lq_variants 	= self.abs_prefix + '.lq.vcf'
+
+		self.variant_discovery_status = self.runVariantDiscovery(sample)
 		# Generate pileup files
-		normal_pileup_file = self.generatePileup(sample['NormalBAM'], 'normal')
-		tumor_pileup_file  = self.generatePileup(sample['TumorBAM'], 'tumor')
+		normal_pileup_file = self.generatePileup(sample['NormalBAM'], 	'normal') #returns pileup filename
+		tumor_pileup_file  = self.generatePileup(sample['TumorBAM'], 	'tumor')
 
 		# Filter LOH
 		_intermediate_loh_filtered_output = self.prefix + ".SNPfilter.intermediate"
@@ -517,24 +475,39 @@ class SomaticSniper(Caller):
 		loh_filtered_output = self.removeLOH(_intermediate_loh_filtered_output, tumor_pileup_file, loh_filtered_output)
 		# loh_filtered_output = _intermediate_file
 		
-		readcounts = self.readcounts(loh_filtered_output, sample['TumorBAM'])
-		false_positive_output = self.removeFalsePositives(loh_filtered_output, readcounts)
-		high_confidence_variants = self.calculateConfidence(false_positive_output)
+		readcount_status 			= self.readcounts(loh_filtered_output, sample['TumorBAM'])
+		readcounts 					= readcount_status['outputFiles']
+		false_positive_status 		= self.removeFalsePositives(loh_filtered_output, readcounts)
+		false_positive_output 		= false_positive_status['outputFiles']
+		high_confidence_status	 	= self.calculateConfidence(false_positive_output)
 
 		self.full_output = [self.raw_variants, self.hq_variants, self.lq_variants]
 		self.final_output = self.hq_variants
 	
 	def runVariantDiscovery(self, sample):
 		# -------------------------------- Variant Discovery Command -----------------------------
-		somaticsniper_command = "{program} -q 1 -Q 15 -s 0.01 -T 0.85 -N 2 -r 0.001 -G -L -n NORMAL -t TUMOR -F vcf -f {reference} {tumor} {normal} {outputfile}".format(
-			program     = self.program,
-			reference   = self.reference,
-			tumor       = sample['TumorBAM'],
-			normal      = sample['NormalBAM'],
-			outputfile  = self.raw_variants)
+		somaticsniper_command = """{program} \
+			-q 1 \
+			-Q 15 \
+			-s 0.01 \
+			-T 0.85 \
+			-N 2 \
+			-r 0.001 \
+			-G \
+			-L \
+			-n NORMAL \
+			-t TUMOR \
+			-F vcf \
+			-f {reference} {tumor} {normal} {outputfile}""".format(
+				program     = self.program,
+				reference   = self.reference,
+				tumor       = sample['TumorBAM'],
+				normal      = sample['NormalBAM'],
+				outputfile  = self.raw_variants
+			)
 		label = "SomaticSniper Variant Discovery"
-		status = self.runCallerCommand(somaticsniper_command, label, self.raw_variants)
-		return status
+		output_result = self.runCallerCommand(somaticsniper_command, label, self.raw_variants)
+		return output_result
 
 	def generatePileup(self, bam_file, bam_name):
 		pileup_file = os.path.join(self.temp_folder, "{0}.somaticsniper.pileup".format(bam_name))
@@ -559,11 +532,15 @@ class SomaticSniper(Caller):
 
 	def removeLOH(self, vcf_file, pileup_file, output_file):
 		# -------------------------- Filter and remove LOH --------------------------------
-		command = "perl {snpfilter} --snp-file {vcf} --indel-file {pileup} --out-file {output}".format(
-			snpfilter = self.snpfilter_script,
-			vcf = vcf_file,
-			pileup = pileup_file,
-			output = output_file)
+		command = """perl {snpfilter} \
+			--snp-file {vcf} \
+			--indel-file {pileup} \
+			--out-file {output}""".format(
+				snpfilter = self.snpfilter_script,
+				vcf 	= vcf_file,
+				pileup 	= pileup_file,
+				output 	= output_file
+			)
 		label = "SomaticSniper: removeLOH"
 		self.runCallerCommand(command, label, output_file, show_output = True)
 		return output_file
@@ -571,30 +548,39 @@ class SomaticSniper(Caller):
 	def readcounts(self, loh_file, tumor_bam):
 		""" Expected Output: 
 		"""
-		prepare_readcount_output = loh_file + '.pos'
-		readcount_output = loh_file + '.readcounts.rc'
+		prepare_readcount_output 	= loh_file + '.pos'
+		readcount_output 			= loh_file + '.readcounts.rc'
 		# Prepare readcounts
-		pr_command = "perl {script} --snp-file {inputfile} --out-file {output}".format(
-			script = self.readcount_script,
-			inputfile = loh_file,
-			output = prepare_readcount_output)
+		pr_command = """perl {script} \
+			--snp-file {inputfile} \
+			--out-file {output}""".format(
+				script 		= self.readcount_script,
+				inputfile 	= loh_file,
+				output 		= prepare_readcount_output
+			)
 		label = "SomaticSniper: Prepare Readcounts"
-		self.runCallerCommand(pr_command, label, prepare_readcount_output)
+		preparation_result = self.runCallerCommand(pr_command, label, prepare_readcount_output)
 		# Readcounts
 
-		readcount_command = "{program} -b {mbq} -q 1 -f {reference} -l {proutput} {tumor} > {output}".format(
-			program = self.readcount_program,
-			mbq = self.min_base_quality,
-			reference = self.reference,
-			proutput = prepare_readcount_output,
-			tumor = tumor_bam,
-			output = readcount_output)
+		readcount_command = """{program} \
+			-b {mbq} \
+			-q 1 \
+			-f {reference} \
+			-l {proutput} \
+			{tumor} > {output}""".format(
+				program 	= self.readcount_program, # different from readcount script
+				mbq 		= self.min_base_quality,
+				reference 	= self.reference,
+				proutput 	= prepare_readcount_output,
+				tumor 		= tumor_bam,
+				output 		= readcount_output
+			)
 		label = "SomaticSniper: Generate Readcounts"
 		# Note: The output for this command will be saved in the console log file.
-		self.runCallerCommand(readcount_command, label, expected_output = readcount_output, filename = readcount_output)
+		readcount_result = self.runCallerCommand(readcount_command, label, expected_output = readcount_output, filename = readcount_output)
 		#self._captureReadcountOutput(readcount_output)
 
-		return readcount_output
+		return readcount_result
 
 	def _captureReadcountOutput(self, output_file):
 		""" Since the terminal output is saved to the console file now,
@@ -624,31 +610,36 @@ class SomaticSniper(Caller):
 
 	def removeFalsePositives(self, loh_file, readcounts):
 		false_positive_output = loh_file + '.fp_pass'
-		fp_command = "perl {fpfilter} --snp-file {snpfilter} -readcount-file {readcounts}".format(
-			fpfilter = self.fpfilter,
-			snpfilter = loh_file,
-			readcounts = readcounts)
+		fp_command = """perl {script} \
+			--snp-file {snpfile} \
+			--readcount-file {readcounts}""".format(
+			script 		= self.fpfilter,
+			snpfile 	= loh_file,
+			readcounts 	= readcounts
+		)
+
 		label = "SomaticSniper: Remove False Positives"
-		self.runCallerCommand(fp_command, label, false_positive_output, show_output = True)
-		return false_positive_output
+		output_status = self.runCallerCommand(fp_command, label, false_positive_output, show_output = True)
+		return output_status
 
 	def calculateConfidence(self, vcf_file):
 		command = """perl {script} \
-			--snp-file {vcf} \
+			--snp-file {snpfile} \
 			--min-mapping-quality {mmq} \
 			--min-somatic-score {ss} \
 			--lq-output {lq} \
 			--out-file {hq}""".format(
-				script = self.hc_script,
-				mmq = self.min_mapping_quality,
-				ss = self.min_somatic_quality,
-				vcf = vcf_file,
-				hq = self.hq_variants,
-				lq = self.lq_variants
+				script 	= self.hc_script,
+				mmq 	= self.min_mapping_quality,
+				ss 		= self.min_somatic_quality,
+				snpfile	= vcf_file,
+				hq 		= self.hq_variants,
+				lq 		= self.lq_variants
 		)
+
 		label = "SomaticSniper: Filter lq Variants"
-		status = self.runCallerCommand(command, label, [self.hq_variants, self.lq_variants], show_output = True)
-		return status
+		output_result = self.runCallerCommand(command, label, [self.hq_variants, self.lq_variants], show_output = True)
+		return output_result
 
 
 class Strelka(Caller):
@@ -659,16 +650,17 @@ class Strelka(Caller):
 		
 		patient_folder = os.path.dirname(self.output_folder)
 
-		self.results_folder = os.path.join(patient_folder, 'Strelka', 'results')
-		self.config_script = os.path.join(self.program, 'bin', 'configureStrelkaWorkflow.pl')
-		self.strelka_project_config_file = os.path.join(patient_folder, "strelka_configuration.ini")
-		self.final_output = os.path.join(self.results_folder, 'passed.somatic.snvs.vcf')
+		strelka_folder 						= os.path.join(patient_folder, 'Strelka')
+		self.results_folder 				= os.path.join(patient_folder, 'Strelka', 	'results')
+		self.strelka_project_config_file 	= os.path.join(patient_folder, 'strelka_configuration.ini')
+		self.config_script 					= os.path.join(self.program, 	'bin', 		'configureStrelkaWorkflow.pl')
+		
+		#self.final_output 	= os.path.join(self.results_folder, 'passed.somatic.snvs.vcf')
+		
 		# Strelka won't run if the output folder already exists.
 		if not os.path.exists(self.final_output) and os.path.exists(self.output_folder):
 			shutil.rmtree(self.output_folder)
 
-		strelka_folder = os.path.join(patient_folder, 'Strelka')
-		
 		# --------------------------------- Configure Strelka --------------------------------
 		# change working directory
 		config_script = self.generateStrelkaConfigFile(self.strelka_project_config_file)
@@ -702,14 +694,15 @@ class Strelka(Caller):
 			--ref={reference} \
 			--config={config} 
 			--output-dir={output_dir}""".format(
-				script = self.config_script,
-				tumor = sample['TumorBAM'],
-				normal= sample['NormalBAM'],
-				reference = self.reference,
-				config = config_ini,
-				output_dir = self.output_folder
+				script 		= self.config_script,
+				tumor 		= sample['TumorBAM'],
+				normal 		= sample['NormalBAM'],
+				reference 	= self.reference,
+				config 		= config_ini,
+				output_dir 	= self.output_folder
 		)
-		self.runCallerCommand(strelka_config_command, self.results_folder)
+		output_result = self.runCallerCommand(strelka_config_command, self.results_folder)
+		return output_result
 
 	def runStrelka(self):
 		output_suffixes = [
@@ -720,11 +713,13 @@ class Strelka(Caller):
 		]
 		output_files = [os.path.join(self.results_folder, i) for i in output_suffixes]
 		strelka_run_command = "make -j {threads} -C {outputdir}".format(
-			outputdir = self.output_folder, threads = self.max_cpu_threads)
+			outputdir = self.output_folder, 
+			threads = self.max_cpu_threads
+		)
 
 		label = "Strelka Run"
-		self.runCallerCommand(strelka_run_command, label, output_files)
-		return output_files
+		output_result = self.runCallerCommand(strelka_run_command, label, output_files)
+		return output_result
 
 	@staticmethod
 	def getStrelkaConfiguration():
@@ -785,10 +780,11 @@ class Varscan(Caller):
 
 		# normal_pileup  = self.generatePileup(sample['NormalBAM'], sample['NormalID'])
 		# tumor_pileup   = self.generatePileup(sample['TumorBAM'], sample['SampleID'])
-		pileup_file = self.generateSinglePileup(sample)
-		self.runSingleVariantDiscovery(pileup_file)
+		pileup_status = self.generateSinglePileup(sample)
+		pileup_file = pileup_status['outputFiles']
+		variant_discovery_status = self.runSingleVariantDiscovery(pileup_file)
 
-		processed_variants = self.postProcessing()
+		processing_status = self.postProcessing()
 		
 		self.full_output = [
 			self.raw_snps, 
@@ -799,6 +795,7 @@ class Varscan(Caller):
 			self.germline_hc,
 			self.loh,
 			self.loh_hc]
+
 		self.final_output = self.somatic_hc
 
 	def generateSinglePileup(self, sample):
@@ -811,11 +808,11 @@ class Varscan(Caller):
 		)
 		command = """samtools mpileup -f {reference} -q 1 -B {normal} {tumor} > {pileup}""".format(
 			reference = self.reference,
-			normal = sample['NormalBAM'],
-			tumor = sample['TumorBAM'],
-			pileup = pileup)
-		self.runCallerCommand(command, "GenerateSinglePileup", pileup, show_output = True)
-		return pileup
+			normal 	= sample['NormalBAM'],
+			tumor 	= sample['TumorBAM'],
+			pileup 	= pileup)
+		output_result = self.runCallerCommand(command, "GenerateSinglePileup", pileup, show_output = True)
+		return output_result
 
 	def runSingleVariantDiscovery(self, pileup):
 		expected_output = [self.raw_snps, self.raw_indels]
@@ -833,10 +830,10 @@ class Varscan(Caller):
 			--strand-filter 0 \
 			--output-vcf""".format(
 				program = self.program,
-				pileup = pileup,
-				output = self.prefix)
-		self.runCallerCommand(command, "RunSingleVariantDiscovery", expected_output)
-
+				pileup  = pileup,
+				output  = self.abs_prefix)
+		output_result = self.runCallerCommand(command, "RunSingleVariantDiscovery", expected_output)
+		return output_result
 	def runDoubleVariantDiscovery(self, normal_pileup, tumor_pileup):
 		command = """java {memory} -jar {varscan} somatic {normal} {tumor} \
 			--output-snp {snp} \
@@ -861,14 +858,14 @@ class Varscan(Caller):
 		process_command = """java -jar {varscan} processSomatic {vcf} \
 			--min-tumor-freq 0.10 \
 			--max-normal-freq 0.05 \
-			--p-value 0.07"""
-		process_command = process_command.format(
-			memory  = self.max_memory_usage,
-			varscan = self.program,
-			vcf     = self.raw_snps)
+			--p-value 0.07""".format(
+				memory  = self.max_memory_usage,
+				varscan = self.program,
+				vcf     = self.raw_snps
+			)
 		label = "Varscan Postprocessing"
-		status = self.runCallerCommand(process_command, label, expected_output)
-		return status
+		output_result = self.runCallerCommand(process_command, label, expected_output)
+		return output_result
 
 	def renameOutputFiles(self):
 		for source in os.listdir(self.output_folder):
@@ -884,66 +881,76 @@ class HaplotypeCaller(Caller):
 	def runCallerWorkflow(self, sample, options, workflow = 'DNA-seq'):
 		filetools.checkDir(self.output_folder, True)
 
-		self.dna_output = self.prefix + ".DNA.raw_snps_indels.vcf"
-		self.rna_output = self.prefix + ".RNA.raw_snps_indels.vcf"
+		self.dna_output = self.abs_prefix + ".DNA.raw_snps_indels.vcf"
+		self.rna_output = self.abs_prefix + ".RNA.raw_snps_indels.vcf"
 		self.filtered_variants = os.path.splitext(self.rna_output)[0] + ".filtered.vcf"
 
 		if workflow == 'DNA-seq':
-			output = self.callDNAVariants(sample, options)
-			self.full_output = [self.dna_output]
-			self.final_output = self.dna_output
+			call_status = self.dnaWorkflow(sample, options)
 		else:
-			bqsr = BaseQualityScoreRecalibration(sample, options)
-			raw_variants = self.callRNAVariants(bqsr.bam)
-			filtered_variants = self.filterVariants(self.rna_output)
-			self.full_output = [self.rna_output, self.filtered_variants]
-			self.final_output = self.filtered_variants
+			call_status = self.rnaWorkflow(sample, options)
 
-	def callRNAVariants(self, bam_file):
+		self.final_output = call_status['outputFiles']
+		self.full_output = [self.final_output]
+
+	def dnaWorkflow(self, sample, options):
+		raw_variant_file = = self.abs_prefix + ".RNA.raw_variants.vcf"
+		call_status = self.dnaVariantDiscovery(sample, options, raw_variant_file)
+		return call_status
+
+	def rnaWorkflow(self, sample, options):
+		raw_variant_file 	= self.abs_prefix + ".RNA.raw_variants.vcf"
+		variant_file 		= self.abs_prefix + ".RNA.filtered_variants.vcf"
+		bqsr_status = BaseQualityScoreRecalibration(sample, options)
+		call_status = self.rnaVariantDiscovery(bqsr.bam, raw_variant_file)
+		filter_status = self.filterVariants(call_status['outputFiles'])
+		return filter_status
+
+	def rnaVariantDiscovery(self, bam_file, output_filename):
 		command = """java -jar {GATK} \
-			-T HaplotypeCaller \
-			-R {reference} \
-			-I {sample} \
+			--analysis_type HaplotypeCaller \
+			--reference_sequence {reference} \
+			--input_file {sample} \
 			--dbsnp {dbSNP} \
 			--dontUseSoftClippedBases \
-			-o {output}""".format(
+			--out {output}""".format(
 				GATK        = self.gatk_program,
 				reference   = self.reference,
 				sample      = bam_file,
 				dbSNP       = self.dbSNP,
-				output      = self.rna_output)
+				output      = output_filename)
 		label = 'RNA Variant Discovery'
-		status = self.runCallerCommand(command, label, self.rna_output)
-		return status
+		output_result = self.runCallerCommand(command, label, output_filename)
+		return output_result
 	
-	def filterVariants(self, vcf_file):
+	def filterVariants(self, variant_file, output_filename):
 		command = """java -jar {GATK} \
-			-T VariantFiltration \
-			-R {reference} \
-			-V {inputfile} \
-			-window 35 \
-			-cluster 3 \
+			--analysis_type VariantFiltration \
+			--reference_sequence {reference} \
+			--variant {inputfile} \
+			--clusterSize 3 \
+			--clusterWindowSize 35 \
 			--filterName FS --filterExpression \"FS > 30.0\" \
 			--filterName QD --filterExpression \"QD < 2.0\" \
-			-o {output}""".format(
+			--out {output}""".format(
 				GATK        = self.gatk_program,
 				reference   = self.reference,
-				inputfile   = vcf_file,
-				output      = self.filtered_variants)
+				inputfile   = variant_file,
+				output      = output_filename)
 		label = 'Variant Filtering'
-		status = self.runCallerCommand(command, label, self.filtered_variants)
-		return status
+		output_result = self.runCallerCommand(command, label, output_filename)
+		return output_result
 	
-	def callDNAVariants(self, sample, options):
+	def dnaVariantDiscovery(self, sample, options, output_filename):
 		command = """java -jar {GATK} \
-			-T HaplotypeCaller \
-			-R {reference} \
-			-I {normal} \
-			-I {tumor} \
-			-L {targets} \
-			-nct {threads} \
+			--analysis_type HaplotypeCaller \
+			--reference_sequence {reference} \
+			--input_file {normal} \
+			--input_file {tumor} \
+			--intervals {targets} \
+			--num_cpu_threads_per_data_thread {threads} \
 			--dbsnp {dbSNP} \
-			-o {output}""".format(
+			--out {output}""".format(
 				GATK        = self.gatk_program,
 				reference   = self.reference,
 				normal      = sample['NormalBAM'],
@@ -951,10 +958,11 @@ class HaplotypeCaller(Caller):
 				targets     = sample['ExomeTargets'],
 				dbSNP       = self.dbSNP,
 				output      = self.dna_output,
-				threads     = self.max_cpu_threads)
+				threads     = self.max_cpu_threads
+			)
 		label = 'DNA Variant Discovery'
-		status = self.runCallerCommand(command, label, self.dna_output)
-		return status
+		output_result = self.runCallerCommand(command, label, output_filename)
+		return output_result
 
 
 class BaseQualityScoreRecalibration(Caller):
@@ -962,29 +970,35 @@ class BaseQualityScoreRecalibration(Caller):
 
 	def runCallerWorkflow(self, sample, options):
 		self.output_folder = os.path.join(
-			"/media/upmc/WD_Partition_2/RNA-seq",
-			'recalibrated_genomes',
-			sample['PatientID']
+			getPipelineFolder('rna-seq'), sample['PatientID']
 		)
 
 		self.recalibration_table    = os.path.join(
-			self.output_folder, sample['SampleID'] + ".RNA.recalibration_data.table")
-		self.covariate_table        = os.path.join(
-			self.output_folder, sample['SampleID'] + ".RNA.covariate_data.table")
-		self.recalibration_plots    = os.path.join(
-			self.output_folder, sample['SampleID'] + ".RNA.recalibration_plots.pdf")
-		self.cigar_bam              = os.path.join(
-			self.output_folder, sample['SampleID'] + ".RNA.cigar.bam")
-		self.realigned_bam          = os.path.join(
-			self.output_folder, sample['SampleID'] + ".RNA.recalibrated.bam")
-		self.bam                    = self.realigned_bam
+			self.output_folder, sample['SampleID'] + ".RNA.recalibration_data.table"
+		)
 		
-		raw_rna_bam_file    = self._getRNABAM(sample)
-		cigar_bam           = self.splitCigarReads(raw_rna_bam_file)
-		recalibration_table = self.generateRecalibrationTable(cigar_bam)
-		realigned_bam       = self.recalibrateBAM(cigar_bam)
-		covariate_table     = self.generateCovariateTable(realigned_bam)
-		recalibration_plots = self.generateRecalibrationPlots()
+		self.covariate_table        = os.path.join(
+			self.output_folder, sample['SampleID'] + ".RNA.covariate_data.table"
+		)
+		
+		self.recalibration_plots    = os.path.join(
+			self.output_folder, sample['SampleID'] + ".RNA.recalibration_plots.pdf"
+		)
+		
+		self.cigar_bam              = os.path.join(
+			self.output_folder, sample['SampleID'] + ".RNA.cigar.bam"
+		)
+		
+		self.realigned_bam          = os.path.join(
+			self.output_folder, sample['SampleID'] + ".RNA.recalibrated.bam"
+		)
+		
+		raw_bam 		     = self._getRNABAM(sample)
+		cigar__status        = self.splitCigarReads()
+		recalibration_status = self.generateRecalibrationTable()
+		realign_status       = self.recalibrateBAM()
+		covariate_status     = self.generateCovariateTable()
+		recalibration_status = self.generateRecalibrationPlots()
 
 		self.final_output   = realigned_bam
 		self.full_output    = [
@@ -999,87 +1013,88 @@ class BaseQualityScoreRecalibration(Caller):
 	def _getRNABAM(sample):
 		return sample['RNABAM']
 	
-	def splitCigarReads(self, bam_file):
+	def splitCigarReads(self):
 		command = """java -jar {GATK} \
-			-T SplitNCigarReads \
-			-R {reference} \
-			-I {inputbam} \
-			-o {outputbam} \
-			-rf ReassignOneMappingQuality -RMQF 255 -RMQT 60 \
-			-U ALLOW_N_CIGAR_READS""".format(
+			--analysis_type SplitNCigarReads \
+			--reference_sequence {reference} \
+			--input_file {inputbam} \
+			--out {outputbam} \
+			--read_filter ReassignOneMappingQuality -RMQF 255 -RMQT 60 \
+			--unsafe ALLOW_N_CIGAR_READS""".format(
 				GATK        = self.gatk_program,
 				reference   = self.reference,
-				inputbam    = bam_file,
-				outputbam   = self.cigar_bam)
+				inputbam    = self.raw_bam,
+				outputbam   = self.cigar_bam
+			)
 		label = "Split Cigar Reads"
-		status = self.runCallerCommand(command, label, self.cigar_bam)
-		return status
+		output_result = self.runCallerCommand(command, label, self.cigar_bam)
+		return output_result
 
-	def generateRecalibrationTable(self, bam_file):
+	def generateRecalibrationTable(self):
 		command = """java -jar {GATK} \
-			-T BaseRecalibrator \
-			-R {reference} \
-			-I {bam} \
-			-knownSites {dbSNP} \
-			-o {output}""".format(
+			--analysis_type BaseRecalibrator \
+			--reference_sequence {reference} \
+			--input_file {bam} \
+			--knownSites {dbSNP} \
+			--out {output}""".format(
 				GATK        = self.gatk_program,
 				reference   = self.reference,
 				dbSNP       = self.dbSNP,
-				bam         = bam_file,
+				bam         = self.cigar_bam,
 				output      = self.recalibration_table)
 		label = "Generate Recalibration Table"
-		status = self.runCallerCommand(command, label, self.recalibration_table)
-		return status
+		output_result = self.runCallerCommand(command, label, self.recalibration_table)
+		return output_result
 
-	def recalibrateBAM(self, bam_file):
+	def recalibrateBAM(self):
 		command = """java -jar {GATK} \
-			-T PrintReads \
-			-R {reference} \
-			-I {bam} \
-			-BQSR {table} \
-			-o {output}""".format(
-				GATK = self.gatk_program,
-				reference = self.reference,
-				bam = bam_file,
-				output = self.realigned_bam,
-				table = self.recalibration_table)
+			--analysis_type PrintReads \
+			--reference_sequence {reference} \
+			--input_file {inputfile} \
+			--BQSR {table} \
+			--out {output}""".format(
+				GATK 		= self.gatk_program,
+				reference 	= self.reference,
+				inputfile 	= self.cigar_bam,
+				output 		= self.realigned_bam,
+				table 		= self.recalibration_table)
 		label = "Recalibrate BAM"
-		status = self.runCallerCommand(command, label, self.realigned_bam)
-		return status
+		output_result = self.runCallerCommand(command, label, self.realigned_bam)
+		return output_result
 	
-	def generateCovariateTable(self, bam_file):
+	def generateCovariateTable(self):
 		command = """java -jar {GATK} \
-			-T BaseRecalibrator \
-			-R {reference} \
-			-I {realigned_bam} \
-			-BQSR {table} \
-			-knownSites {dbSNP} \
-			-o {output}""".format(
+			--analysis_type BaseRecalibrator \
+			--reference_sequence {reference} \
+			--input_file {realigned_bam} \
+			--BQSR {table} \
+			--knownSites {dbSNP} \
+			--out {output}""".format(
 				GATK        = self.gatk_program,
 				reference   = self.reference,
 				dbSNP       = self.dbSNP,
 				table       = self.recalibration_table,
-				realigned_bam = bam_file,
+				realigned_bam = self.realigned_bam,
 				output      = self.covariate_table)
 		label = "Generate Covariate Table"
-		status = self.runCallerCommand(command, label, self.covariate_table)
-		return status
+		output_result = self.runCallerCommand(command, label, self.covariate_table)
+		return output_result
 	
 	def generateRecalibrationPlots(self):
 		command = """ java -jar {GATK} \
-			-T AnalyzeCovariates \
-			-R {reference} \
-			-before {before} \
-			-after {after} \
-			-plots {plots}""".format(
+			--analysis_type AnalyzeCovariates \
+			--reference_sequence {reference} \
+			--beforeReportFile {before} \
+			--afterReportFile {after} \
+			--plotsReportFile {plots}""".format(
 				GATK        = self.gatk_program,
 				reference   = self.reference,
 				before      = self.recalibration_table,
 				after       = self.covariate_table,
 				plots       = self.recalibration_plots)
 		label = "Generate Recalibration Plots"
-		status = self.runCallerCommand(command, label, self.recalibration_plots)
-		return status
+		output_result = self.runCallerCommand(command, label, self.recalibration_plots)
+		return output_result
 
 
 class UnifiedGenotyper(Caller):
@@ -1178,30 +1193,34 @@ class VarscanCopynumber(Caller):
 		normal_pileup   = self.generatePileup(sample['NormalBAM'], sample['NormalID'])
 		tumor_pileup    = self.generatePileup(sample['TumorBAM'], sample['SampleID'])
 
-		copynumber_ratios = self.callCopynumberRatios(normal_pileup, tumor_pileup)
-		copynumber_calls  = self.copyCaller()
+		copynumber_ratio_status = self.callCopynumberRatios(normal_pileup, tumor_pileup)
+		copynumber_caller_status  = self.copyCaller()
 
-		copynumber_segments = self.circularBinarySegmentation()
+		segmentation_status = self.circularBinarySegmentation()
 
 
 		self.full_output = [
 			self.copynumber_output,
 			self.called_copynumbers,
 			self.called_homdels,
-			self.copynumber_segments]
+			self.copynumber_segments
+		]
 		self.final_output = self.copynumber_segments
 
 	def setCustomEnvironment(self, sample, options):
-		self.output_folder = os.path.join(
-			options['Pipeline Options']['copynumber pipeline folder'],
-			sample['PatientID'], self.caller_name)
+
+		self.output_folder = getPipelineFolder('copynumber-variants', sample['PatientID'], self.caller_name)
 		
-		
-		self.prefix = os.path.join(self.output_folder, 
-			"{normal}_vs_{tumor}.{prefix}".format(
+		self.base_prefix = "{normal}_vs_{tumor}.{prefix}".format(
 			tumor   = sample['SampleID'], 
 			normal  = sample['NormalID'],
-			prefix  = self.caller_name.lower()))
+			prefix  = self.caller_name.lower()
+		)
+
+		self.abs_prefix = os.path.join(
+			self.output_folder, 
+			self.base_prefix
+		)
 
 	def circularBinarySegmentation(self):
 		# NEED to strip first row of table before r script
@@ -1226,44 +1245,43 @@ class VarscanCopynumber(Caller):
 				file1.write(line + '\n')
 
 		command = """Rscript {script}""".format(script = self.rscript_filename)
-		label = "Generate Copynumber Segments"
-		status = self.runCallerCommand(command, label, self.copynumber_segments, show_output = True)
-		return status
+		label = "Circulr Binary Segmentation"
+		output_result = self.runCallerCommand(command, label, self.copynumber_segments, show_output = True)
+		return output_result
 
 	def callCopynumberRatios(self, normal_pileup, tumor_pileup):
 		# -------------------------- Varscan (copynumber - caller) -----------------------------
 		copynumber_command = """java {memory} -jar {varscan} copynumber {normal} {tumor} {prefix} \
 			--min-base_qual {mbq} \
 			--min-map-qual {mmq}""".format(
-				mmq = self.min_mapping_quality,
-				mbq = self.min_base_quality,
-				normal = normal_pileup,
-				tumor = tumor_pileup,
+				mmq 	= self.min_mapping_quality,
+				mbq 	= self.min_base_quality,
+				normal 	= normal_pileup,
+				tumor 	= tumor_pileup,
 				varscan = self.program,
-				memory = self.max_memory_usage,
-				prefix = self.prefix
+				memory 	= self.max_memory_usage,
+				prefix 	= self.prefix
 		)
-		label = "Call copynumber Ratios"
-		self.runCallerCommand(copynumber_command, label, self.copynumber_output)
+		label = "Varscan Copynumber Ratios"
+		output_result = self.runCallerCommand(copynumber_command, label, self.copynumber_output)
 
-		return self.copynumber_output
+		return output_result
 
 	def copyCaller(self):
 		command = """java {memory} -jar {varscan} copyCaller {copynumber} \
 		--output-file {called} \
 		--output-homdel-file {homdels} \ 
 		--min-coverage {mq}""".format(
-			memory = self.max_memory_usage,
-			varscan = self.program,
-			copynumber = self.copynumber_output,
-			called = self.called_copynumbers,
-			homdels = self.called_homdels,
-			mq = self.min_coverage)
-		label = "CopyCaller"
-		self.runCallerCommand(command, label, self.called_copynumbers)
+			memory 		= self.max_memory_usage,
+			varscan 	= self.program,
+			copynumber 	= self.copynumber_output,
+			called 		= self.called_copynumbers,
+			homdels 	= self.called_homdels,
+			mq 			= self.min_coverage)
+		label = "Varscan CopyCaller"
+		output_result = self.runCallerCommand(command, label, self.called_copynumbers)
 
-		return self.called_copynumbers
-
+		return output_result
 
 class CNVkit(Caller):
 	__name__ = "CNVkit"
@@ -1278,33 +1296,35 @@ class CNVkit(Caller):
 			sample['SampleID'] + '.targetcoverage.cnn'
 		]
 		self.full_output = [os.path.join(self.output_folder, fn) for fn in self.full_output]
-		reference_cnn = self.runBatchCommand(sample)
+		call_status = self.runBatchCommand(sample)
 
 	def setCustomEnvironment(self, sample, options):
-		self.output_folder = os.path.join(
-			options['Pipeline Options']['copynumber pipeline folder'],
-			sample['PatientID'], self.caller_name)
+		getPipelineFolder('copynumber-variants', sample['PatientID'], self.caller_name)
 
 	def runBatchCommand(self, sample):
 		reference_cnn = os.path.join(self.output_folder, "reference_cnv.cnn")
-		batch_command = """{cnvkit} batch {tumor} --normal {normal} \
+
+		batch_command = """{cnvkit} batch {tumor} \
+			--normal {normal} \
 			--targets {targets} \
 			--fasta {reference} \
 			--output-reference {refcnn} \
 			--output-dir {results} \
-			--diagram --scatter""".format(
+			--diagram \
+			--scatter""".format(
 				cnvkit = self.program,
 				tumor = sample['TumorBAM'],
 				normal = sample['NormalBAM'],
 				targets = sample['ExomeTargets'],
 				reference = self.reference,
 				refcnn = reference_cnn,
-				results = self.output_folder)
+				results = self.output_folder
+			)
 
 		label = "Batch Command"
-		status = self.runCallerCommand(batch_command, label, reference_cnn)
+		output_result = self.runCallerCommand(batch_command, label, reference_cnn)
 
-		return status
+		return output_result
 
 
 class FREEC(Caller):
@@ -1313,122 +1333,145 @@ class FREEC(Caller):
 	def runCallerWorkflow(self, sample, options):
 		self.samtools_program = options['Programs']['samtools']
 
-		self.program_folder = self.program
+		self.program_folder = self.program # for readability
 		self.program        = os.path.join(self.program_folder, 'src', 'freec')
 		self.script_folder  = os.path.join(self.program_folder, 'scripts')
 
 		self.assess_significance_script = os.path.join(self.script_folder, "assess_significance.R")
 		self.plot_script                = os.path.join(self.script_folder, "makeGraph.R")
-		self.config_file                = self.prefix + "_config.txt"
+		self.config_file                = self.abs_prefix + "_config.txt"
 		self.chrlenfile                 = os.path.join(self.output_folder, "chromosome_lengths.txt")
 		# --------------------- Generate Pileup Files -----------------------------
-		print("\t\t(1/6) Generate Pileup Files")
-		normal_pileup   = self.generatePileup(sample['NormalBAM'], sample['NormalID'])
-		tumor_pileup    = self.generatePileup(sample['TumorBAM'], sample['SampleID'])
+		# Generate Pileup Files
+		pileup_normal   = self.generatePileup(sample['NormalBAM'], sample['NormalID'])
+		pileup_sample   = self.generatePileup(sample['TumorBAM'],  sample['SampleID'])
 		
 		# --------------------- Generate ChrLen File  -----------------------------
-		print("\t\t(2/6) Detect Chromosome Lengths")
+		# Detect Chromosome Lengths
 		self.createChrLenFile(sample['ExomeTargets'])
 
 		# --------------------- Generate Config File ------------------------------
-		print("\t\t(3/6) Configure FREEC")
-		# [general]
-		# _configure_freec(sample, options, reference, chrlenfile, output_folder):
-		all_options = self.configureFREEC(sample, normal_pileup, tumor_pileup, sample['ExomeTargets'])
+		# Configure FREEC
+
+		all_options = self.configureFREEC(sample, pileup_normal, pileup_sample, sample['ExomeTargets'])
 
 		# ------------------------------------- Run FREEC --------------------------------
-		print("\t\t(4/6) Main Analysis")
+		# Main Analysis
+		# Filenames are automatically generated by the program based on the pileup filename.
 		nbasename = os.path.basename(normal_pileup)
 		tbasename = os.path.basename(tumor_pileup)
-		self.normal_CNVs    = os.path.join(self.output_folder, tbasename + "_normal_CNVs")
-		self.normal_ratios  = os.path.join(self.output_folder, tbasename + "_normal_ratio.txt")
-		self.normal_baf_file = os.path.join(self.output_folder, nbasename + "_BAF.txt")
-		
+
+		# files for the normal sample
+		self.copynumber_normal 	= os.path.join(self.output_folder, tbasename + "_normal_CNVs")
+		self.ratio_normal  		= os.path.join(self.output_folder, tbasename + "_normal_ratio.txt")
+		self.baf_normal 		= os.path.join(self.output_folder, nbasename + "_BAF.txt")
+		self.plot_normal 		= os.path.join(self.output_folder, self.ratio_normal + ".png")
 		# files for the tumor sample
+		self.copynumber_sample  = os.path.join(self.output_folder, tbasename + "_CNVs")
+		self.ratio_sample      	= os.path.join(self.output_folder, tbasename + "_ratio.txt")
+		self.baf_sample    		= os.path.join(self.output_folder, tbasename + "_BAF.txt")
+		self.plot_sample 		= os.path.join(self.output_folder, self.ratio_sample + ".png")
 		
-		self.sample_CNVs        = os.path.join(self.output_folder, tbasename + "_CNVs")
-		self.sample_ratios      = os.path.join(self.output_folder, tbasename + "_ratio.txt")
-		self.sample_baf_file    = os.path.join(self.output_folder, tbasename + "_BAF.txt")
-		self.full_output = [self.normal_CNVs, self.normal_ratios, self.normal_baf_file,
-							self.sample_CNVs, self.sample_ratios, self.sample_baf_file]
+		self.full_output = [
+			self.copynumber_normal, self.ratio_normal,  self.baf_normal,
+			self.copynumber_sample,	self.ratio_sample,  self.baf_sample
+		]
+
 		self.runFREEC()
 
 		# ------------------------------------ Add Log2Ratios ----------------------------
 		# --------------------------------- Calculate Significance -----------------------
-		print("\t\t(5/6) Calculate Significance")
+		
+		# Calculate Significance
 		# files for the normal sample
 
-		self.normal_significance = self.calculateSignificance(self.normal_CNVs, self.normal_ratios)
-		self.sample_significance = self.calculateSignificance(self.sample_CNVs, self.sample_ratios)
+		self.significance_normal = self.calculateSignificance(self.copynumber_normal, self.ratio_normal)
+		self.significance_tumor  = self.calculateSignificance(self.copynumber_sample, self.ratio_sample)
 	
-		print("\t\t(6/6) Generate Plots")
+		# Generate Plots
 
-		self.normal_plot = os.path.join(self.output_folder, self.normal_ratios + ".png")
-		self.sample_plot = os.path.join(self.output_folder, self.sample_ratios + ".png")
-		self.generatePlots(self.normal_ratios, self.normal_baf_file)
-		self.generatePlots(self.sample_ratios, self.sample_baf_file)
+		plot_normal_status = self.generatePlots(self.ratio_normal, self.baf_normal)
+		plot_sample_status = self.generatePlots(self.ratio_sample, self.baf_sample)
 	
 	def setCustomEnvironment(self, sample, options):
-		self.output_folder = os.path.join(
-			options['Pipeline Options']['copynumber pipeline folder'],
-			sample['PatientID'], self.caller_name)
-
-		self.prefix = os.path.join(
+		self.output_folder = getPipelineFolder('copynumber-variants', sample['PatientID'], self.caller_name)
+		
+		self.base_prefix = "{normal}_vs_{tumor}.{prefix}".format(
+			tumor  = sample['SampleID'],
+			normal = sample['NormalID'],
+			prefix = self.caller_name.lower()
+		)
+		
+		self.abs_prefix = os.path.join(
 			self.output_folder,
-			"{normal}_vs_{tumor}.{prefix}".format(
-				tumor  = sample['SampleID'],
-				normal = sample['NormalID'],
-				prefix = self.caller_name.lower()
-			)
+			self.base_prefix
 		)
 
 	def createChrLenFile(self, targets_file):
 		if os.path.exists(self.chrlenfile): return None
 		genome_index_file = self.reference + '.fai'
-		exclude_chroms = [
+		exclude_chroms = [ #manually selected
 			'chr1_KI270706v1_random',
 			'chr4_GL000008v2_random',
 			'chr14_GL000009v2_random',
 			'chrUn_KI270742v1'
 		]
 		# generated as the intersection of the genome index and exome targets files
-		if os.path.exists(targets_file):
-			with open(targets_file, 'r') as bedfile:
-				bedchrs = set([i[0] for i in csv.reader(bedfile, delimiter = '\t')])
-		else:
-			self._fileNotFound(targets_file)
-		
-		if os.path.exists(genome_index_file):
-			with open(genome_index_file, 'r') as file1:
-				chrlens = ['\t'.join(i[:3]) + '\n'
-						   for i in csv.reader(file1, delimiter = '\t')
-						   if (i[0] in bedchrs and i[0] not in exclude_chroms)]
-		else:
-			self._fileNotFound(genome_index_file)
+		# existence of targets file is verified at the start of the pipeline
+		with open(targets_file, 'r') as bedfile:
+			bedchrs = set([i[0] for i in csv.reader(bedfile, delimiter = '\t')])
+
+		with open(genome_index_file, 'r') as file1:
+			chrlens = ['\t'.join(i[:3]) + '\n'
+					   for i in csv.reader(file1, delimiter = '\t')
+					   if (i[0] in bedchrs and i[0] not in exclude_chroms)]
 		
 		with open(self.chrlenfile, 'w') as file1:
 			[file1.write(i) for i in chrlens]
 
 	def calculateSignificance(self, cnvs, ratios):
 		expected_output = cnvs + '.p.value.txt'
-		command = """cat {script} | R --slave --args {CNVs} {ratios}""".format(
+
+		#Command used in the documentation
+		command = """cat {script} | R --slave --args {cnvs} {ratios}""".format(
+			script 	= self.assess_significance_script,
+			cnvs 	= cnvs,
+			ratios 	= ratios
+		)
+
+		#Reformmatted command
+		command = """Rscript {script} --slave --args {cnvs} {ratios}""".format(
 			script = self.assess_significance_script,
-			CNVs = cnvs,
-			ratios = ratios)
+			cnvs = cnvs,
+			ratios = ratios
+		)
+
 		label = "Calculate Significance"
-		self.runCallerCommand(command, label, expected_output, show_output = True)
-		return expected_output
+		output_result = self.runCallerCommand(command, label, expected_output, show_output = True)
+		return output_result
 
 	def generatePlots(self, ratios, baf_file):
 		# --------------------------------- Generate Plots --------------------------------
 		expected_output = ratios + '.png'
+
+		#Command used in the documentation
 		command = """cat {script} | R --slave --args {ploidy} {ratios} {baf}""".format(
 			script = self.plot_script,
 			ploidy = "2",
 			ratios = ratios,
 			baf = baf_file)
+
+		#reformatted command
+		command = """Rscript {script} --slave --args {ploidy} {ratios} {baf}""".format(
+			script = self.plot_script,
+			ploidy = "2",
+			ratios = ratios,
+			baf = baf_file
+		)
+
 		label = "Generate Plots"
-		self.runCallerCommand(command, label, expected_output, show_output = True)
+		output_result = self.runCallerCommand(command, label, expected_output, show_output = True)
+		return output_result
 
 	def configureFREEC(self, sample, normal_pileup, tumor_pileup, targets):
 		general_options = {
@@ -1498,9 +1541,12 @@ class FREEC(Caller):
 		# expected_output = [self.normal_CNVs, self.sample_CNVs]
 		freec_command = "{freec} -conf {config}".format(
 			freec = self.program,
-			config = self.config_file)
+			config = self.config_file
+		)
+
 		label = "Call Variants"
-		self.runCallerCommand(freec_command, label, self.full_output)
+		output_result = self.runCallerCommand(freec_command, label, self.full_output)
+		return output_result
 
 # ----------------------------------------------------------------------------------------------------
 # ------------------------------------------ Pipelines -----------------------------------------------
@@ -1508,7 +1554,7 @@ class FREEC(Caller):
 
 
 class Pipeline(Caller):
-	def __init__(self, sample, options, sample_callers, DEBUG = False):
+	def __init__(self, sample, options, sample_callers):
 		self.expected_output = None
 		self.full_output = list()
 		self.pipeline_callers = self._getCallers(sample_callers)
@@ -1550,11 +1596,6 @@ class SomaticPipeline(Pipeline):
 		}
 		return available_callers
 
-	@staticmethod
-	def _get_pipeline_folder(options):
-		folder = os.path.join(options['working directory'], "3_called_variants")
-		return folder
-
 
 class CopynumberPipeline(Pipeline):
 	__name__ = "CopynumberVariantDiscoveryPipeline"
@@ -1568,11 +1609,6 @@ class CopynumberPipeline(Pipeline):
 		}
 		return available_callers
 
-	@staticmethod
-	def _get_pipeline_folder(options):
-		return os.path.join(options['working directory'], "4_copynumber_pipeline")
-
-
 # ----------------------------------------------------------------------------------------------------
 # --------------------------------------------- Main -------------------------------------------------
 # ----------------------------------------------------------------------------------------------------
@@ -1581,10 +1617,10 @@ class CopynumberPipeline(Pipeline):
 class SampleBAMFiles:
 	""" A class for locating and validating the BAM files for each sample.
 	"""
-	def __init__(self, sample, config, verify_md5sum = False, DEBUG = False):
+	def __init__(self, sample, config, verify_md5sum = False):
 		"""
 		"""
-		self.DEBUG = DEBUG
+
 		sample['NormalBAM'] = self._fetchFilename(sample.get('NormalBAM'), sample['NormalUUID'])
 		sample['TumorBAM'] = self._fetchFilename(sample.get('TumorBAM'), sample['SampleUUID'])
 
@@ -1598,7 +1634,7 @@ class SampleBAMFiles:
 		normal_file_status = self._verifyFile(sample['NormalBAM'], normal_md5sum)
 		tumor_file_status  = self._verifyFile(sample['TumorBAM'], tumor_md5sum)
 
-		if self.DEBUG:
+		if DEBUG:
 			self.status = True
 		else:
 			self.status = normal_file_status and tumor_file_status
@@ -1809,7 +1845,7 @@ class GenomicsPipeline:
 		print("#"*90 + sample['PatientID'] + '#'*90)
 		print("#"*180)
 
-		if self.parser.debug:
+		if DEBUG:
 			print("PatientID: ", sample['PatientID'])
 			print("\tSomatic Callers: ", somatic_callers)
 			print("\tCopynumber Callers: ", current_copynumber_callers)
@@ -1837,20 +1873,20 @@ class GenomicsPipeline:
 			print(message)
 			LOGGER.critical(message)
 
-		if self.parser.debug:
+		if DEBUG:
 			print("\tFile Status: ", file_status)
 
 		if file_status:
-			if not self.parser.ignore_caller_status and not self.parser.debug:
+			if not self.parser.ignore_caller_status and not DEBUG:
 				somatic_callers = [i for i in somatic_callers if i not in sample_completed_callers]
-			somatic_pipeline = SomaticPipeline(sample, config, somatic_callers, DEBUG = self.parser.debug)
+			somatic_pipeline = SomaticPipeline(sample, config, somatic_callers)
 			if self.parser.debug:
 				print("\t\tSomatic Callers: ", somatic_callers)
 
-			if not self.parser.ignore_caller_status and not self.parser.debug:
+			if not self.parser.ignore_caller_status and not DEBUG:
 				current_copynumber_callers = [i for i in somatic_callers if i not in sample_completed_callers]
 			copynumber_pipeline = CopynumberPipeline(sample, config, current_copynumber_callers)
-			if self.parser.debug:
+			if DEBUG:
 				print("Copynumber Callers: ", current_copynumber_callers)
 		else:
 			logging.critical("{0}: The BAM files are invalid!".format(sample['PatientID']))
