@@ -156,6 +156,8 @@ class Caller:
 		self.runCallerWorkflow(sample, options)
 
 		self.renameOutputFiles()
+
+		self.verifyOutputFiles()
 		
 		##### Update the caller log
 		program_stop = now()
@@ -179,14 +181,16 @@ class Caller:
 			_terminal_file = filename
 
 		self.addToReadme(command, label, expected_output)
-		caller_process = systemtools.Terminal(
+		caller_session = systemtools.Terminal(
 			command,
 			label = label,
 			expected_output = expected_output,
 			filename = _terminal_file,
 			show_output = show_output)
 
-		command_status = caller_process.getStatus()
+		self._verifySessionStatus(caller_session)
+
+		command_status = caller_session.getStatus()
 		return command_status
 
 	def generatePileup(self, bam_file, bam_name):
@@ -279,6 +283,29 @@ class Caller:
 		status = not caller_failed
 
 		return status
+
+	def verifySessionStatus(self, session):
+		""" Verifies that the command completed properly 
+			Parameters
+			----------
+				session: systemtools.Terminal
+		"""
+
+		session_status = session.status
+		if not session_status:
+			print(session)
+
+		raise ValueError()
+
+
+	def verifyOutputFiles(self):
+
+		output_status = [(os.path.exists(fn), fn) for fn in self.full_output]
+		if any(not i[0] for i in output_status):
+			print("Some output files were not created: ")
+			for s, f in output_status:
+				print("\t{}\t{}".format(s, f))
+			raise FileNotFoundError()
 
 
 class DepthOfCoverage(Caller):
