@@ -149,7 +149,7 @@ class Caller:
 			print("\tprogram location: ", self.program)
 			print("\toutput folder: ", self.output_folder)
 			print("\ttemp folder: ", self.temp_folder)
-			print("\tcaller output prefix: ", self.prefix)
+			print("\tcaller output prefix: ", self.base_prefix)
 
 		self.createReadmeFile(sample)
 
@@ -159,7 +159,7 @@ class Caller:
 		
 		##### Update the caller log
 		program_stop = now()
-		
+
 		self.updateSampleLog(sample, program_start, program_stop)
 
 	def runCallerCommand(self, command, label = "", expected_output = None, show_output = False, filename = None):
@@ -361,7 +361,7 @@ class MuSE(Caller):
 		
 		sump_command = "{program} sump -I {call_output} -E -D {dbSNP} -O {output}".format(
 			program 	= self.program,
-			prefix 		= self.prefix,
+			prefix 		= self.abs_prefix,
 			dbSNP 		= self.dbSNP,
 			call_output = self.call_output,
 			output 		= self.sump_output)
@@ -376,8 +376,8 @@ class MuTect(Caller):
 	def setCustomEnvironment(self, sample, options):
 		self.caller_name = "MuTect"
 		self.java_program = "/home/upmc/Downloads/jre1.7.0_80/bin/java"
-		self.variant_file = self.prefix + '.mutect117.vcf'
-		self.coverage_file= self.prefix + '.mutect117.coverage.wiggle.txt'
+		self.variant_file = self.abs_prefix + '.mutect117.vcf'
+		self.coverage_file= self.abs_prefix + '.mutect117.coverage.wiggle.txt'
 		self.final_output = self.coverage_file
 		self.full_output = [self.variant_file, self.coverage_file]
 
@@ -416,7 +416,7 @@ class MuTect2(Caller):
 
 	def setCustomEnvironment(self, sample, options):
 		self.caller_name = "MuTect2"
-		self.final_output = self.prefix + '.vcf'
+		self.final_output = self.abs_prefix + '.vcf'
 		self.full_output = [self.final_output]
 
 	def runCallerWorkflow(self, sample, options):
@@ -479,8 +479,8 @@ class SomaticSniper(Caller):
 		tumor_pileup_file  = self.generatePileup(sample['TumorBAM'], 	'tumor')
 
 		# Filter LOH
-		_intermediate_loh_filtered_output = self.prefix + ".SNPfilter.intermediate"
-		loh_filtered_output = self.prefix + ".SNPfilter.final"
+		_intermediate_loh_filtered_output = self.abs_prefix + ".SNPfilter.intermediate"
+		loh_filtered_output = self.abs_prefix + ".SNPfilter.final"
 		_intermediate_file  = self.removeLOH(self.raw_variants, normal_pileup_file, _intermediate_loh_filtered_output)
 		loh_filtered_output = self.removeLOH(_intermediate_loh_filtered_output, tumor_pileup_file, loh_filtered_output)
 		# loh_filtered_output = _intermediate_file
@@ -766,7 +766,7 @@ class Strelka(Caller):
 			else:
 				basename = "passed.somatic.snps"
 
-			destination = self.prefix + basename + ".strelka.vcf"
+			destination = self.abs_prefix + basename + ".strelka.vcf"
 
 			shutil.copyfile(source, destination)
 
@@ -775,15 +775,15 @@ class Varscan(Caller):
 
 	def setCustomEnvironment(self, sample, options):
 		self.caller_name = "Varscan"
-		self.raw_snps   = self.prefix + '.snp.vcf'
-		self.raw_indels = self.prefix + '.indel.vcf'
+		self.raw_snps   = self.abs_prefix + '.snp.vcf'
+		self.raw_indels = self.abs_prefix + '.indel.vcf'
 
-		self.somatic_hc = self.prefix + '.snp.Somatic.hc.vcf'
-		self.somatic_lc = self.prefix + '.snp.Somatic.lc.vcf'
-		self.germline   = self.prefix + '.snp.Germline.vcf'
-		self.germline_hc= self.prefix + '.snp.Germline.hc.vcf'
-		self.loh        = self.prefix + '.snp.LOH.vcf'
-		self.loh_hc     = self.prefix + '.snp.LOH.hc.vcf'
+		self.somatic_hc = self.abs_prefix + '.snp.Somatic.hc.vcf'
+		self.somatic_lc = self.abs_prefix + '.snp.Somatic.lc.vcf'
+		self.germline   = self.abs_prefix + '.snp.Germline.vcf'
+		self.germline_hc= self.abs_prefix + '.snp.Germline.hc.vcf'
+		self.loh        = self.abs_prefix + '.snp.LOH.vcf'
+		self.loh_hc     = self.abs_prefix + '.snp.LOH.hc.vcf'
 
 		self.full_output = [
 			self.raw_snps, 
@@ -1112,8 +1112,8 @@ class UnifiedGenotyper(Caller):
 
 	def runCallerWorkflow(self, sample, options, workflow = 'DNA-seq'):
 
-		self.dna_variants = self.prefix + '.DNA.raw_snps_indels.vcf'
-		self.rna_variants = self.prefix + '.RNA.raw_snps_indels.vcf'
+		self.dna_variants = self.abs_prefix + '.DNA.raw_snps_indels.vcf'
+		self.rna_variants = self.abs_prefix + '.RNA.raw_snps_indels.vcf'
 		self.filtered_variants = os.path.splitext(self.rna_variants)[0] + '.filtered.vcf'
 		
 		if workflow == 'DNA-seq':
@@ -1190,25 +1190,14 @@ class UnifiedGenotyper(Caller):
 
 
 class VarscanCopynumber(Caller):
-	__name__ = "Varscan"
 
-	def runCallerWorkflow(self, sample, options):
-		# super().__init__(self, sample, options, 'Varscan') 
+	def setCustomEnvironment(self, sample, options):
+		self.caller_name = "Varscan"
 		self.rscript_filename   = os.path.join(self.output_folder, "{0}.varscan_CBS.r".format(sample['PatientID']))
-		self.copynumber_output  = self.prefix + '.copynumber'           # [prefix].copynumber
+		self.copynumber_output  = self.abs_prefix + '.copynumber'           # [prefix].copynumber
 		self.called_copynumbers = self.copynumber_output + '.called'    # [prefix].copynumber.called
 		self.called_homdels     = self.called_copynumbers + '.homdel'   # [prefix].copynumber.called.homdel
 		self.copynumber_segments =self.called_copynumbers + '.segments' # [prefix].copynumber.called.segments
-
-		normal_pileup   = self.generatePileup(sample['NormalBAM'], sample['NormalID'])
-		tumor_pileup    = self.generatePileup(sample['TumorBAM'], sample['SampleID'])
-
-		copynumber_ratio_status = self.callCopynumberRatios(normal_pileup, tumor_pileup)
-		copynumber_caller_status  = self.copyCaller()
-
-		segmentation_status = self.circularBinarySegmentation()
-
-
 		self.full_output = [
 			self.copynumber_output,
 			self.called_copynumbers,
@@ -1216,6 +1205,14 @@ class VarscanCopynumber(Caller):
 			self.copynumber_segments
 		]
 		self.final_output = self.copynumber_segments
+	def runCallerWorkflow(self, sample, options):
+		normal_pileup   = self.generatePileup(sample['NormalBAM'], sample['NormalID'])
+		tumor_pileup    = self.generatePileup(sample['TumorBAM'], sample['SampleID'])
+
+		copynumber_ratio_status = self.callCopynumberRatios(normal_pileup, tumor_pileup)
+		copynumber_caller_status  = self.copyCaller()
+
+		segmentation_status = self.circularBinarySegmentation()
 
 	def setCustomEnvironment(self, sample, options):
 
@@ -1270,7 +1267,7 @@ class VarscanCopynumber(Caller):
 				tumor 	= tumor_pileup,
 				varscan = self.program,
 				memory 	= self.max_memory_usage,
-				prefix 	= self.prefix
+				prefix 	= self.abs_prefix
 		)
 		label = "Varscan Copynumber Ratios"
 		output_result = self.runCallerCommand(copynumber_command, label, self.copynumber_output)
@@ -1294,11 +1291,10 @@ class VarscanCopynumber(Caller):
 		return output_result
 
 class CNVkit(Caller):
-	__name__ = "CNVkit"
 
-	def runCallerWorkflow(self, sample, options):
-		# super().__init__(self, sample, options, 'CNVkit')
-		
+	def setCustomEnvironment(self, sample, options):
+		self.caller_name = "CNVKit"
+		self.output_folder = getPipelineFolder('copynumber-variants', sample['PatientID'], self.caller_name)
 		self.final_output = os.path.join(self.output_folder, 'reference_cnv.cnn')
 		self.full_output = [
 			sample['SampleID'] + '.cns',
@@ -1306,10 +1302,10 @@ class CNVkit(Caller):
 			sample['SampleID'] + '.targetcoverage.cnn'
 		]
 		self.full_output = [os.path.join(self.output_folder, fn) for fn in self.full_output]
+	
+	def runCallerWorkflow(self, sample, options):
 		call_status = self.runBatchCommand(sample)
 
-	def setCustomEnvironment(self, sample, options):
-		getPipelineFolder('copynumber-variants', sample['PatientID'], self.caller_name)
 
 	def runBatchCommand(self, sample):
 		reference_cnn = os.path.join(self.output_folder, "reference_cnv.cnn")
@@ -1338,7 +1334,6 @@ class CNVkit(Caller):
 
 
 class FREEC(Caller):
-	__name__ = "FREEC"
 
 	def runCallerWorkflow(self, sample, options):
 		self.samtools_program = options['Programs']['samtools']
@@ -1404,6 +1399,7 @@ class FREEC(Caller):
 		plot_sample_status = self.generatePlots(self.ratio_sample, self.baf_sample)
 	
 	def setCustomEnvironment(self, sample, options):
+		self.caller_name = "FREEC"
 		self.output_folder = getPipelineFolder('copynumber-variants', sample['PatientID'], self.caller_name)
 		
 		self.base_prefix = "{normal}_vs_{tumor}.{prefix}".format(
@@ -1561,7 +1557,101 @@ class FREEC(Caller):
 # ----------------------------------------------------------------------------------------------------
 # ------------------------------------------ Pipelines -----------------------------------------------
 # ----------------------------------------------------------------------------------------------------
+class BasePipeline:
 
+	def __init__(self, sample, callers, options_filename):
+		self._checkIfPathExists(options_filename)
+		options = configparser.ConfigParser()
+		options.read(options_filename)
+
+		self._verifyPipelineFiles(options_filename)
+		self._verifySampleFiles(sample)
+
+		self.runWorkflow(sample, options, callers)
+
+	def _verifyPipelineFiles(self, options):
+		""" Verifies that the files required to run the pipeline exist """
+
+		# verify that the options file exists and load it.
+		self._checkIfPathExists('options file', filename)
+
+		# Verify that the required programs exist
+		self._checkIfPathExists('GATK', 			options['Programs']['GATK'])
+		self._checkIfPathExists('MuSE', 			options['Programs']['muse'])
+		self._checkIfPathExists('MuTect2', 			options['Programs']['mutect2'])
+		self._checkIfPathExists('SomaticSniper', 	options['Programs']['somaticsniper'])
+		self._checkIfPathExists('Strelka', 			options['Programs']['strelkafolder'])
+		self._checkIfPathExists('Varscan2', 		options['Programs']['varscan'])
+		self._checkIfPathExists('bam-readcount', 	options['Programs']['bam-readcount'])
+		self._checkIfPathExists('CNVKit', 			options['Programs']['cnvkit'])
+		self._checkIfPathExists('samtools', 		options['Programs']['samtools'])
+		self._checkIfPathExists('samtools (0.1.6)', options['Programs']['samtools-0.1.6'])
+
+		# Verify That the Reference Files Exist
+		
+		self._checkIfPathExists('reference genome', options['Reference Files']['reference genome'])
+		self._checkIfPathExists('dbSNP', 			options['Reference Files']['dbSNP'])
+		self._checkIfPathExists('COSMIC', 			options['Reference Files']['cosmic'])
+
+		# Verify that other files exist
+		self._checkIfPathExists('reference genome index', current_options['Reference Files']['reference genome'] + '.fai') #for FREEC
+
+	def _verifySampleFiles(self, sample):
+		""" Verifies that all required sample files exist and are not corrupted. """
+		patientId = sample['PatientID']
+		#Verify BAM Files
+		self._checkIfPathExists('NormalBAM', sample['NormalBAM'])
+		self._checkIfPathExists('TumorBAM'   sample['TumorBAM'])
+
+		md5_normal = filetools.generateFileMd5(sample['NormalBAM'])
+		expected_md5sum_normal = API(sample['NormalUUID'], 'files')
+		if md5_normal != expected_md5sum_normal:
+			message = "The Normal BAM (ID {}) does not have the correct md5sum!".format(sample['NormalID'])
+			raise ValueError(message)
+
+		md5_sample = filetools.generateFileMd5(sample['TumorBAM'])
+		expected_md5sum_sample = API(sample['SampleUUID'], 'files')
+		if md5_sample != expected_md5sum_sample:
+			message = "The Tumor BAM (ID {}) does not have the correct md5sum!".format(sample['SampleID'])
+			raise ValueError(message)
+
+		#Verify exome targets File
+		self._checkIfPathExists("the exome targets", sample['ExomeTargets'])
+
+	def _checkIfPathExists(self, label, path):
+		if not os.path.exists(path):
+			message = "Missing file for {}: {}".format(label, path)
+			raise FileNotFoundError(message)
+
+	def runWorkflow(self, sample, options, callers):
+		pass
+
+class DNASNPWorkflow(BasePipeline):
+	def runWorkflow(self, sample, workflow_options, workflow_callers):
+
+		if 'muse' in workflow_callers:
+			muse_result = MuSE(sample, workflow_options)
+		if 'mutect' in workflow_callers:
+			mutect_result = MuTect2(sample, workflow_options)
+		if 'somaticsniper' in workflow_callers:
+			somaticsniper_result = SomaticSniper(sample, workflow_options)
+		if 'strelka' in workflow_callers:
+			strelka_result = Strelka(sample, options)
+		if 'varscan' in workflow_callers:
+			varscan_result = Varscan(sample, options)
+
+class RNASNPWorkflow(BasePipeline):
+	pass
+
+class DNACopynumberWorkflow(BasePipeline):
+	def runWorkflow(self, sample, options, workflow_callers):
+		
+		if 'cnvkit' in workflow_callers:
+			pass
+		if 'freec' in workflow_callers:
+			pass
+		if 'varscan' in workflow_callers:
+			pass
 
 class Pipeline(Caller):
 	def __init__(self, sample, options, sample_callers):
@@ -1622,7 +1712,9 @@ class CopynumberPipeline(Pipeline):
 # ----------------------------------------------------------------------------------------------------
 # --------------------------------------------- Main -------------------------------------------------
 # ----------------------------------------------------------------------------------------------------
-
+class VerifyBamFile:
+	def __init__(self, io):
+		pass
 
 class SampleBAMFiles:
 	""" A class for locating and validating the BAM files for each sample.
