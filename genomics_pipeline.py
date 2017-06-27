@@ -6,7 +6,7 @@ import isodate
 import gdc_api
 import cmd_parser
 import configparser
-
+from pprint import pprint
 GITHUB_FOLDER = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
 import sys
 sys.path.append(GITHUB_FOLDER)
@@ -14,7 +14,7 @@ print(GITHUB_FOLDER)
 import pytools.systemtools as systemtools
 import pytools.filetools as filetools
 import pytools.tabletools as tabletools
-
+import pytools.timetools as timetools
 # --------------------------------- Global Variables ----------------------------
 now = datetime.datetime.now
 
@@ -31,7 +31,7 @@ BACKWARDS_COMPATIBLE = False
 FORCE_OVERWRITE = False
 
 DEBUG = True
-
+VERBOSE_LEVEL = 4
 # ----------------------------------------------------------------------------------------------------
 # ------------------------------------ Set Up Global Functions ---------------------------------------
 # ----------------------------------------------------------------------------------------------------
@@ -76,7 +76,7 @@ def getPipelineFolder(step, patientId = None, caller_name = None):
 		raise ValueError(message)
 
 	pipeline_folder = os.path.join(PIPELINE_DIRECTORY, *subfolders)
-	filetools.checkDir(pipeline_folder)
+	filetools.checkDir(pipeline_folder, True)
 	
 	return pipeline_folder
 
@@ -95,7 +95,7 @@ class Caller:
 		self.dbSNP      = options['Reference Files']['dbSNP']
 		self.cosmic     = options['Reference Files']['COSMIC']
 
-		self.program             = options['Programs'].get()
+		self.program             = options['Programs'].get(self.caller_name.lower())
 		self.gatk_program        = options['Programs']['GATK']
 		self.max_cpu_threads     = options['Parameters']['MAX_CORES']
 		self.max_memory_usage    = options['Parameters']['JAVA_MAX_MEMORY_USAGE']
@@ -115,9 +115,12 @@ class Caller:
 		)
 		self.abs_prefix = os.path.join(self.output_folder, self.base_prefix)
 	
-		self.temp_folder = getPipelineFolder('temporary', sample['PatientId'])
+		self.temp_folder = getPipelineFolder('temporary', sample['PatientID'])
 		#self.temp_folder = options['Pipeline Options']['temporary folder']
 		self.temp_files = list()
+
+		filetools.checkDir(self.output_folder, True)
+		filetools.checkDir(self.temp_folder, True)
 		
 		self.setCustomEnvironment(sample, options)
 		self.console_file = os.path.join(
@@ -152,27 +155,33 @@ class Caller:
 
 		#self.updateSampleLog(sample, program_start, program_stop)
 
-	def runCallerCommand(self, command, label = "", expected_output = None, show_output = False, filename = None):
+	def runCallerCommand(self, command, label, expected_output = None, **kwargs):
+		"""
+			Keyword Arguments:
+				command:
+				label:
+				expected_output:
+				output_filename:
+		"""
+		#expected_output = kwargs.get('expected_output')
+		output_filename = kwargs.get('output_filename')
+		#label = kwargs.get('label', self.caller_name + ".runCallerCommand")
+
 		if expected_output is None:
 			expected_output = []
 		elif isinstance(expected_output, str):
 			expected_output = [expected_output]
-		
-		if label == "":
-			label = self.caller_name + ".runCallerCommand"
-
-		if filename is None:
-			_terminal_file = self.console_file
-		else:
-			_terminal_file = filename
+	
 
 		self.addToReadme(command, label, expected_output)
 		caller_session = systemtools.Terminal(
 			command,
 			label = label,
 			expected_output = expected_output,
-			filename = _terminal_file,
-			show_output = show_output)
+			command_filename = self.console_file,
+			output_filename = output_filename,
+			verbose = VERBOSE_LEVEL,
+		)
 
 		self._verifySessionStatus(caller_session)
 
@@ -185,19 +194,21 @@ class Caller:
 		"""
 		output_file = os.path.join(
 			self.temp_folder,
-			'{}.{}.mpileup'.format(
-				bam_name,
-				self.caller_name.lower()
+			'{}.mpileup'.format(
+				bam_name
 			)
 		)
 		self.temp_files.append(output_file)
-		pileup_command = "samtools mpileup -q 1 -B -f {reference} {sample} > {output}".format(
+		#pileup_command = "samtools mpileup -q 1 -B -f {reference} {sample} > {output}".format(
+		pileup_command = "samtools mpileup -q 1 -B -f {reference} {sample}".format(
 			reference = self.reference,
 			sample = bam_file,
-			output = output_file)
+			output = output_file,
+			filename = output_file
+		)
 
 		label = "Generate MPileup File"
-		self.runCallerCommand(pileup_command, label, output_file, show_output = True)
+		self.runCallerCommand(pileup_command, label, output_file, output_filename = output_file)
 		return output_file
 
 	def renameOutputFiles(self):
@@ -263,6 +274,7 @@ class Caller:
 
 	def setCustomEnvironment(self, sample, options):
 		pass
+	
 	def runCallerWorkflow(self, sample):
 		pass
 
@@ -283,8 +295,7 @@ class Caller:
 		if not session_status:
 			print(self.caller_name)
 			print(session)
-
-		raise ValueError()
+			raise FileNotFoundError("{}: The expected output files are not present!".format(self.caller_name))
 
 	def verifyOutputFiles(self):
 
@@ -329,14 +340,17 @@ class DepthOfCoverage(Caller):
 			--input_file {normal} \
 			--input_file {tumor} \
 			--calculateCoverageOverGenes {genes} \
-			--intervals {targets}""".format(
+			--intervals {targets} \
+			--out {outfile}""".format(
 				GATK =      self.gatk_program,
 				reference = self.reference,
 				prefix =    self.abs_prefix,
 				normal =    sample['NormalBAM'],
 				tumor =     sample['TumorBAM'],
 				targets =   sample['ExomeTargets'],
-				genes =     self.gene_list)
+				genes =     self.gene_list,
+				outfile =	output_filename
+			)
 		label = "DepthofCoverage"
 		result = self.runCallerCommand(command, label, output_filename)
 
@@ -535,25 +549,30 @@ class SomaticSniper(Caller):
 		return output_result
 
 	def generatePileup(self, bam_file, bam_name):
-		pileup_file = os.path.join(self.temp_folder, "{0}.somaticsniper.pileup".format(bam_name))
-		output_file = pileup_file + '.pileup'
-		samtools_command = "{samtools} pileup -cvi -f {reference} {bam} > {pileup}".format(
+
+		raw_pileup_file = os.path.join(self.temp_folder, "{0}.somaticsniper.pileup".format(bam_name))
+		filtered_output_file = raw_pileup_file + '.pileup'
+		
+		#samtools_command = "{samtools} pileup -cvi -f {reference} {bam} > {pileup}".format(
+		samtools_command = "{samtools} pileup -cvi -f {reference} {bam}".format(
 			samtools = self.samtools_program,
 			reference = self.reference,
 			bam = bam_file,
-			pileup = pileup_file)
+			pileup = raw_pileup_file)
 
-		filter_command = """samtools.pl varFilter -Q {basequality} {inputpileup} > {outputpileup}""".format(
+		#filter_command = """samtools.pl varFilter -Q {basequality} {inputpileup} > {outputpileup}""".format(
+		filter_command = """samtools.pl varFilter -Q {basequality} {inputpileup}""".format(
 			basequality = self.min_base_quality,
-			inputpileup = pileup_file,
-			outputpileup = output_file)
+			inputpileup = raw_pileup_file,
+			outputpileup = filtered_output_file)
 		# samtools.pl varFilter raw.pileup | awk '$6>=20' > final.pileup
 		label = "SomaticSniper: Generate Pileup File" 
-		self.runCallerCommand(samtools_command, label, pileup_file, show_output = True)
-		label = "SomaticSniper: Filter Pileup File"
-		self.runCallerCommand(filter_command, label, output_file)
+		self.runCallerCommand(samtools_command, label, raw_pileup_file, output_filename = raw_pileup_file)
 
-		return output_file
+		label = "SomaticSniper: Filter Pileup File"
+		self.runCallerCommand(filter_command, label, filtered_output_file, output_filename = filtered_output_file)
+
+		return filtered_output_file
 
 	def removeLOH(self, vcf_file, pileup_file, output_file):
 		# -------------------------- Filter and remove LOH --------------------------------
@@ -567,7 +586,7 @@ class SomaticSniper(Caller):
 				output 	= output_file
 			)
 		label = "SomaticSniper: removeLOH"
-		self.runCallerCommand(command, label, output_file, show_output = True)
+		self.runCallerCommand(command, label, output_file)
 		return output_file
 
 	def readcounts(self, loh_file, tumor_bam):
@@ -602,7 +621,7 @@ class SomaticSniper(Caller):
 			)
 		label = "SomaticSniper: Generate Readcounts"
 		# Note: The output for this command will be saved in the console log file.
-		readcount_result = self.runCallerCommand(readcount_command, label, expected_output = readcount_output, filename = readcount_output)
+		readcount_result = self.runCallerCommand(readcount_command, label, expected_output = readcount_output, output_filename = readcount_output)
 		#self._captureReadcountOutput(readcount_output)
 
 		return readcount_result
@@ -644,7 +663,7 @@ class SomaticSniper(Caller):
 		)
 
 		label = "SomaticSniper: Remove False Positives"
-		output_status = self.runCallerCommand(fp_command, label, false_positive_output, show_output = True)
+		output_status = self.runCallerCommand(fp_command, label, false_positive_output)
 		return output_status
 
 	def calculateConfidence(self, vcf_file):
@@ -663,7 +682,7 @@ class SomaticSniper(Caller):
 		)
 
 		label = "SomaticSniper: Filter lq Variants"
-		output_result = self.runCallerCommand(command, label, [self.hq_variants, self.lq_variants], show_output = True)
+		output_result = self.runCallerCommand(command, label, [self.hq_variants, self.lq_variants])
 		return output_result
 
 
@@ -682,9 +701,10 @@ class Strelka(Caller):
 			'all.somatic.indels.vcf',
 			'all.somatic.snvs.vcf',
 			'passed.somatic.indels.vcf',
-			'passed.somatic.snvs,vcf'
+			'passed.somatic.snvs.vcf'
 		]
 		self.full_output = [os.path.join(self.results_folder, fn) for fn in full_output]
+		self.final_output = self.full_output[0]
 	
 	def runCallerWorkflow(self, sample):
 		# Strelka won't run if the output folder already exists.
@@ -696,27 +716,27 @@ class Strelka(Caller):
 		
 		self.configureStrelka(sample, self.strelka_project_config_file)
 		
-		output_files = self.runStrelka()
+		self.runStrelka()
 
 
 	def generateStrelkaConfigFile(self, configuration_file):
 		strelka_configuration_options = self.getStrelkaConfiguration()
-		
+		print("Generating Strelka Config File...")
 		with open(configuration_file, 'w') as file1:
 			# strelka_configuration_options = [i.split('\t')[0].strip() for i in strelka_configuration_options.s]
 			file1.write('[user]\n')
 			for row in strelka_configuration_options.split('\n'):
-				row = [i for i in row.split('\t') if '=' in i]
-				if len(row) > 0:
-					file1.write(row[0] + '\n')
+				#row = [i for i in row.split('\t') if '=' in i]
+				#if len(row) > 0:
+				file1.write(row.strip() + '\n')
 		return configuration_file
 
 	def configureStrelka(self, sample, config_ini):
-		strelka_config_command = """{script} \
+		strelka_config_command = """perl {script} \
 			--tumor={tumor} \
 			--normal={normal} \
 			--ref={reference} \
-			--config={config} 
+			--config={config} \
 			--output-dir={output_dir}""".format(
 				script 		= self.config_script,
 				tumor 		= sample['TumorBAM'],
@@ -725,10 +745,12 @@ class Strelka(Caller):
 				config 		= config_ini,
 				output_dir 	= self.output_folder
 		)
-		output_result = self.runCallerCommand(strelka_config_command, self.results_folder)
+		#print(strelka_config_command)
+		output_result = self.runCallerCommand(strelka_config_command, "Configure Strelka", [self.output_folder])
 		return output_result
 
 	def runStrelka(self):
+		#print(os.path.exists(self.output_folder), '\t', self.output_folder)
 		output_suffixes = [
 			'all.somatic.indels.vcf',
 			'all.somatic.snvs.vcf',
@@ -736,6 +758,7 @@ class Strelka(Caller):
 			'passed.somatic.snvs.vcf'
 		]
 		output_files = [os.path.join(self.results_folder, i) for i in output_suffixes]
+		#print(self.output_folder)
 		strelka_run_command = "make -j {threads} -C {outputdir}".format(
 			outputdir = self.output_folder, 
 			threads = self.max_cpu_threads
@@ -743,14 +766,13 @@ class Strelka(Caller):
 
 		label = "Strelka Run"
 		output_result = self.runCallerCommand(strelka_run_command, label, output_files)
-		return output_result
 
 	@staticmethod
 	def getStrelkaConfiguration():
 		strelka_configuration_options = """
-			isSkipDepthFilters = 1                      isSkipDepthFilters should be set to 1 to skip depth filtration for whole exome or other targeted sequencing data
-			maxInputDepth = 10000                       strelka will not accept input reads above this depth. Set this value <= 0 to disable this feature.
-			depthFilterMultiple = 3.0                   If the depth filter is not skipped, all variants which occur at a depth greater than depthFilterMultiple*chromosome mean depth will be filtered out.
+			isSkipDepthFilters = 1						isSkipDepthFilters should be set to 1 to skip depth filtration for whole exome or other targeted sequencing data
+			maxInputDepth = 10000						strelka will not accept input reads above this depth. Set this value <= 0 to disable this feature.
+			depthFilterMultiple = 3.0					If the depth filter is not skipped, all variants which occur at a depth greater than depthFilterMultiple*chromosome mean depth will be filtered out.
 			snvMaxFilteredBasecallFrac = 0.4            Somatic SNV calls are filtered at sites where greater than this fraction of basecalls have been removed by the mismatch density filter in either sample.
 			snvMaxSpanningDeletionFrac = 0.75           Somatic SNV calls are filtered at sites where greater than this fraction of overlapping reads contain deletions which span the SNV call site.
 			indelMaxRefRepeat = 8                       Somatic indel calls are filtered if they represent an expansion or contraction of a repeated pattern with a repeat count greater than indelMaxRefRepeat in the reference
@@ -767,6 +789,27 @@ class Strelka(Caller):
 			sindelQuality_LowerBound = 30               Somatic quality score (QSI_NT, NT=ref) below which somatic indels are marked as filtered
 			isWriteRealignedBam = 0                     Optionally write out read alignments which were altered during the realignment step. Location: ${ANALYSIS_DIR}/realigned/{normal,tumor}.realigned.bam
 			binSize = 25000000                          Jobs are parallelized over segments of the reference genome no larger than this size"""
+
+		strelka_configuration_options = """
+			isSkipDepthFilters = 1
+			maxInputDepth = 10000
+			depthFilterMultiple = 3.0
+			snvMaxFilteredBasecallFrac = 0.4
+			snvMaxSpanningDeletionFrac = 0.75
+			indelMaxRefRepeat = 8
+			indelMaxWindowFilteredBasecallFrac = 0.3
+			indelMaxIntHpolLength = 14
+			ssnvPrior = 0.000001
+			sindelPrior = 0.000001
+			ssnvNoise = 0.0000005
+			sindelNoise = 0.000001
+			ssnvNoiseStrandBiasFrac = 0.5
+			minTier1Mapq = 20
+			minTier2Mapq = 0
+			ssnvQuality_LowerBound = 15
+			sindelQuality_LowerBound = 30
+			isWriteRealignedBam = 0
+			binSize = 25000000"""
 		return strelka_configuration_options
 
 	def renameOutputFiles(self):
@@ -804,7 +847,7 @@ class Varscan(Caller):
 			self.raw_snps, 
 			self.raw_indels,
 			self.somatic_hc,
-			self.somatic_lc,
+			#self.somatic_lc,
 			self.germline,
 			self.germline_hc,
 			self.loh,
@@ -817,23 +860,32 @@ class Varscan(Caller):
 		pileup_status = self.generateSinglePileup(sample)
 		pileup_file = pileup_status['outputFiles']
 		variant_discovery_status = self.runSingleVariantDiscovery(pileup_file)
-
+		#self.runDoubleVariantDiscovery(sample)
 		processing_status = self.postProcessing()
 
 	def generateSinglePileup(self, sample):
 		pileup = os.path.join(
 			self.temp_folder,
-			"{0}_vs_{1}.varscan.mpileup".format(
+			"{}_vs_{}.intermediate.mpileup".format(
 				sample['NormalID'],
 				sample['SampleID']
-				)
+			)
 		)
-		command = """samtools mpileup -f {reference} -q 1 -B {normal} {tumor} > {pileup}""".format(
+		# command = """samtools mpileup -f {reference} -q 1 -B {normal} {tumor} > {pileup}""".format(
+		command = """samtools mpileup \
+					-f {reference} \
+					-q 1 \
+					-B {normal} \
+					{tumor}""".format(
 			reference = self.reference,
 			normal 	= sample['NormalBAM'],
 			tumor 	= sample['TumorBAM'],
-			pileup 	= pileup)
-		output_result = self.runCallerCommand(command, "GenerateSinglePileup", pileup, show_output = True)
+			pileup 	= pileup
+		)
+		#output_result = self.runCallerCommand(command, "GenerateSinglePileup", pileup, output_filename = pileup, show_output = True)
+		os.system(command + " > {}".format(pileup))
+		output_result = {'outputFiles': pileup}
+		pprint(output_result)
 		return output_result
 
 	def runSingleVariantDiscovery(self, pileup):
@@ -854,10 +906,15 @@ class Varscan(Caller):
 				program = self.program,
 				pileup  = pileup,
 				output  = self.abs_prefix)
+		print(command)
 		output_result = self.runCallerCommand(command, "RunSingleVariantDiscovery", expected_output)
+
 		return output_result
 	
-	def runDoubleVariantDiscovery(self, normal_pileup, tumor_pileup):
+	def runDoubleVariantDiscovery(self, sample):
+
+		normal_pileup = self.generatePileup(sample['NormalBAM'], sample['NormalID'])
+		tumor_pileup = self.generatePileup(sample['TumorBAM'], sample['SampleID'])
 		command = """java {memory} -jar {varscan} somatic {normal} {tumor} \
 			--output-snp {snp} \
 			--output-indel {indel} \
@@ -891,6 +948,7 @@ class Varscan(Caller):
 		return output_result
 
 	def renameOutputFiles(self):
+		return None
 		for source in os.listdir(self.output_folder):
 			#destination = os.path.join(self.output_folder, source.replace('varscan', 'raw'))
 			destination = os.path.splitext(source)[0] + ".varscan.vcf"
@@ -902,7 +960,8 @@ class HaplotypeCaller(Caller):
 	def __init__(self, sample, options, input_bam = None):
 		self.input_bam = input_bam
 		self.options = options
-		super().__init__(self, sample, options)
+		super().__init__(sample, options)
+
 	def setCustomEnvironment(self, sample, options):
 		self.caller_name = "HaplotypeCaller"
 
@@ -1194,7 +1253,7 @@ class VarscanCopynumber(Caller):
 
 		command = """Rscript {script}""".format(script = self.rscript_filename)
 		label = "Circulr Binary Segmentation"
-		output_result = self.runCallerCommand(command, label, self.copynumber_segments, show_output = True)
+		output_result = self.runCallerCommand(command, label, self.copynumber_segments)
 		return output_result
 
 	def callCopynumberRatios(self, normal_pileup, tumor_pileup):
@@ -1410,7 +1469,7 @@ class FREEC(Caller):
 		)
 
 		label = "Calculate Significance"
-		output_result = self.runCallerCommand(command, label, expected_output, show_output = True)
+		output_result = self.runCallerCommand(command, label, expected_output)
 		return output_result
 
 	def generatePlots(self, ratios, baf_file):
@@ -1433,7 +1492,7 @@ class FREEC(Caller):
 		)
 
 		label = "Generate Plots"
-		output_result = self.runCallerCommand(command, label, expected_output, show_output = True)
+		output_result = self.runCallerCommand(command, label, expected_output)
 		return output_result
 
 	def configureFREEC(self, normal_pileup, tumor_pileup, targets):
@@ -1517,7 +1576,7 @@ class FREEC(Caller):
 
 class BasePipeline:
 
-	def __init__(self, sample, callers, options_filename):
+	def __init__(self, sample, options_filename, callers):
 
 		pipeline_options = self._verifyPipelineFiles(options_filename)
 		self._verifySampleFiles(sample)
@@ -1537,7 +1596,7 @@ class BasePipeline:
 		self._checkIfPathExists('MuSE', 			options['Programs']['muse'])
 		self._checkIfPathExists('MuTect2', 			options['Programs']['mutect2'])
 		self._checkIfPathExists('SomaticSniper', 	options['Programs']['somaticsniper'])
-		self._checkIfPathExists('Strelka', 			options['Programs']['strelkafolder'])
+		self._checkIfPathExists('Strelka', 			options['Programs']['strelka'])
 		self._checkIfPathExists('Varscan2', 		options['Programs']['varscan'])
 		self._checkIfPathExists('bam-readcount', 	options['Programs']['bam-readcount'])
 		self._checkIfPathExists('CNVKit', 			options['Programs']['cnvkit'])
@@ -1566,13 +1625,13 @@ class BasePipeline:
 
 		md5_normal = filetools.generateFileMd5(sample['NormalBAM'])
 		expected_md5sum_normal = API(sample['NormalUUID'], 'files')
-		if md5_normal != expected_md5sum_normal:
+		if md5_normal != expected_md5sum_normal and not DEBUG:
 			message = "The Normal BAM (ID {}) does not have the correct md5sum!".format(sample['NormalID'])
 			raise ValueError(message)
 
 		md5_sample = filetools.generateFileMd5(sample['TumorBAM'])
 		expected_md5sum_sample = API(sample['SampleUUID'], 'files')
-		if md5_sample != expected_md5sum_sample:
+		if md5_sample != expected_md5sum_sample and not DEBUG:
 			message = "The Tumor BAM (ID {}) does not have the correct md5sum!".format(sample['SampleID'])
 			raise ValueError(message)
 
@@ -1592,7 +1651,7 @@ class BasePipeline:
 class DNAWorkflow(BasePipeline):
 	def runWorkflow(self, sample, workflow_options, workflow_callers):
 		if len(workflow_callers) == 1 and 'all' in workflow_callers:
-			workflow_callers = ['haplotypecaller', 'muse', 'mutect', 'somaticsniper', 'stelka', 'varscan']
+			workflow_callers = ['muse', 'mutect', 'somaticsniper', 'strelka', 'varscan']
 
 		if 'haplotypecaller' in workflow_callers:
 			haplotypecaller_result = HaplotypeCaller(sample, workflow_options)
@@ -1618,18 +1677,20 @@ class RNAWorkflow(BasePipeline):
 
 class CopynumberWorkflow(BasePipeline):
 	def runWorkflow(self, sample, options, workflow_callers):
-		
+		if len(workflow_callers) == 1 and 'all' in workflow_callers:
+			workflow_callers = ['freec', 'varscan']
+
 		if 'cnvkit' in workflow_callers:
-			pass
+			cnvkit_result = CNVkit(sample, options)
 		if 'freec' in workflow_callers:
-			pass
+			freec_result = FREEC(sample, options)
 		if 'varscan' in workflow_callers:
-			pass
+			varscan_result = VarscanCopynumber(sample, options)
 
 # ----------------------------------------------------------------------------------------------------
 # --------------------------------------------- Main -------------------------------------------------
 # ----------------------------------------------------------------------------------------------------
-
+DEBUG = True
 class GenomicsPipeline:
 	def __init__(self, sample_filename, options_filename, dna_callers = [], copynumber_callers = [], rna_callers = []):
 		dna_callers = [i.lower() for i in dna_callers]
@@ -1643,6 +1704,7 @@ class GenomicsPipeline:
 
 	@staticmethod
 	def _runSample(sample, options_filename, dna_callers, copynumber_callers, rna_callers):
+		sample = sample.to_dict()
 		_use_value = sample.get('Use', False)
 		_use_this_sample = _use_value not in {False, 'false', 0, '0', 'no', 'No'}
 
