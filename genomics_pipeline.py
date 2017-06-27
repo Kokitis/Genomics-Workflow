@@ -883,7 +883,9 @@ class Varscan(Caller):
 			pileup 	= pileup
 		)
 		#output_result = self.runCallerCommand(command, "GenerateSinglePileup", pileup, output_filename = pileup, show_output = True)
-		os.system(command + " > {}".format(pileup))
+		#Need to use os.system due to how samtools generates mpileups and the size of the output.
+		if not os.path.exists:
+			os.system(command + " > {}".format(pileup))
 		output_result = {'outputFiles': pileup}
 		pprint(output_result)
 		return output_result
