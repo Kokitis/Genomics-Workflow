@@ -1579,7 +1579,7 @@ class FREEC(Caller):
 class BasePipeline:
 
 	def __init__(self, sample, options_filename, callers):
-
+		print("Using callers: ", ",".join(callers))
 		pipeline_options = self._verifyPipelineFiles(options_filename)
 		self._verifySampleFiles(sample)
 
@@ -1670,7 +1670,7 @@ class DNAWorkflow(BasePipeline):
 
 
 class RNAWorkflow(BasePipeline):
-	def _runWorkflow(self, sample, options, workflow_callers):
+	def runWorkflow(self, sample, options, workflow_callers):
 
 		processed_bam = BaseQualityScoreRecalibration(sample, options)
 
@@ -1728,11 +1728,11 @@ if __name__ == "__main__":
 
 	default_config_filename = os.path.join(PIPELINE_DIRECTORY, "0_config_files", "pipeline_project_options.txt")
 	
-	default_sample_filename = os.path.join(PIPELINE_DIRECTORY, "debug_sample_list.tsv")
-	pipeline_dna_callers = ['all']
+	default_sample_filename = os.path.join(PIPELINE_DIRECTORY, "rna_sample_list.tsv")
+	pipeline_dna_callers = []
+	pipeline_rna_callers = ['haplotypecaller']
 	pipeline_copynumber_callers = []
-	pipeline_rna_callers = []
-
+	
 
 	pipeline = GenomicsPipeline(
 		default_sample_filename,
@@ -1741,4 +1741,5 @@ if __name__ == "__main__":
 		rna_callers = pipeline_rna_callers,
 		copynumber_callers = pipeline_copynumber_callers
 	)
+# /home/upmc/Documents/TCGA-ESCA/RNA-seq/579bce59-438b-4ee2-b199-a91de73bca0e/b33ec9ae-7692-465d-ab40-b9a140df9c2e_gdc_realn_rehead.bam
 
