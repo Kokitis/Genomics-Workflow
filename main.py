@@ -8,17 +8,14 @@ import cmd_parser
 import configparser
 from pprint import pprint
 from callers import *
-GITHUB_FOLDER = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
-import sys
-sys.path.append(GITHUB_FOLDER)
-print(GITHUB_FOLDER)
-import pytools.systemtools as systemtools
-import pytools.filetools as filetools
-import pytools.tabletools as tabletools
-import pytools.timetools as timetools
+
+from callers import *
+from pipeline_structure import *
+
 # --------------------------------- Global Variables ----------------------------
 now = datetime.datetime.now
 
+"""
 # The parent folder the pipeline will be run in.
 PIPELINE_DIRECTORY = "/home/upmc/Documents/Variant_Discovery_Pipeline"
 # File to save the console output to. Only used when the console output is supressed.
@@ -80,7 +77,7 @@ def getPipelineFolder(step, patientId = None, caller_name = None):
 	filetools.checkDir(pipeline_folder, True)
 	
 	return pipeline_folder
-
+"""
 # ----------------------------------------------------------------------------------------------------
 # ------------------------------------- Variant Caller Pipeline --------------------------------------
 # ----------------------------------------------------------------------------------------------------
@@ -238,15 +235,15 @@ class GenomicsPipeline:
 API = gdc_api.GDCAPI()
 
 
-if __name__ == "__main__":
+if __name__ == "__main__" or True:
 
 	command_line_options = cmd_parser.getCMDArgumentParser().parse_args()
 
 	default_config_filename = os.path.join(PIPELINE_DIRECTORY, "0_config_files", "pipeline_project_options.txt")
 	
-	default_sample_filename = os.path.join(PIPELINE_DIRECTORY, "rna_sample_list.tsv")
-	pipeline_dna_callers = []
-	pipeline_rna_callers = ['haplotypecaller']
+	default_sample_filename = os.path.join(PIPELINE_DIRECTORY, "debug_sample_list.tsv")
+	pipeline_dna_callers = ['all']
+	pipeline_rna_callers = []
 	pipeline_copynumber_callers = []
 	
 

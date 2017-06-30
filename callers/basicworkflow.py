@@ -4,19 +4,23 @@ import os
 import shutil
 import isodate
 
-GITHUB_FOLDER = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
+GITHUB_FOLDER = os.path.dirname(os.path.dirname(os.path.dirname(os.path.realpath(__file__))))
 import sys
 sys.path.append(GITHUB_FOLDER)
-print(GITHUB_FOLDER)
+#print(GITHUB_FOLDER)
+#import systemtools
+#import filetools
 import pytools.systemtools as systemtools
 import pytools.filetools as filetools
-from ..main import getPipelineFolder
+from pipeline_structure import *
+import datetime
+print(dir())
 
 class Workflow:
 	def __init__(self, sample, options):
 
 		##### Define commonly-used variables
-		program_start = now()
+		program_start = datetime.datetime.now()
 		self.caller_name = self.__class__.__name__
 		self.reference  = options['Reference Files']['reference genome']
 		self.dbSNP      = options['Reference Files']['dbSNP']
@@ -78,7 +82,7 @@ class Workflow:
 		self.verifyOutputFiles()
 		
 		##### Update the caller log
-		program_stop = now()
+		program_stop = datetime.datetime.now()
 
 		#self.updateSampleLog(sample, program_start, program_stop)
 
