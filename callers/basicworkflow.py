@@ -115,7 +115,7 @@ class Workflow:
 		)
 
 		#self._verifySessionStatus(caller_session)
-		self.verifyOutputFiles()
+		self.verifyOutputFiles(expected_output)
 
 		command_status = caller_session.getStatus()
 		return command_status
@@ -229,9 +229,9 @@ class Workflow:
 			print(session)
 			raise FileNotFoundError("{}: The expected output files are not present!".format(self.caller_name))
 
-	def verifyOutputFiles(self):
+	def verifyOutputFiles(self, expected_output):
 
-		output_status = [(os.path.exists(fn), fn) for fn in self.full_output]
+		output_status = [(os.path.exists(fn), fn) for fn in expected_output]
 		if any(not i[0] for i in output_status):
 			print("The output files from {} were not generated correctly.".format(self.caller_name))
 			print("Some output files were not created: ")
