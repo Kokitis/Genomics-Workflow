@@ -85,7 +85,7 @@ def getPipelineFolder(step, patientId = None, caller_name = None):
 # ----------------------------------------------------------------------------------------------------
 
 
-class Caller:
+class Workflow:
 	def __init__(self, sample, options):
 
 		##### Define commonly-used variables
@@ -309,7 +309,7 @@ class Caller:
 			raise FileNotFoundError()
 
 
-class DepthOfCoverage(Caller):
+class DepthOfCoverage(Workflow):
 
 	def setCustomEnvironment(self, sample, options):
 		self.caller_name = "DepthOfCoverage"
@@ -359,7 +359,7 @@ class DepthOfCoverage(Caller):
 		return result
 
 
-class MuSE(Caller):
+class MuSE(Workflow):
 
 	def setCustomEnvironment(self, sample, options):
 		self.caller_name = "MuSE"
@@ -402,7 +402,7 @@ class MuSE(Caller):
 		return output_result
 
 
-class MuTect(Caller):
+class MuTect(Workflow):
 
 	def setCustomEnvironment(self, sample, options):
 		self.caller_name = "MuTect"
@@ -443,7 +443,7 @@ class MuTect(Caller):
 		return output_result
 
 
-class MuTect2(Caller):
+class MuTect2(Workflow):
 
 	def setCustomEnvironment(self, sample, options):
 		self.caller_name = "MuTect2"
@@ -479,7 +479,7 @@ class MuTect2(Caller):
 		return output_result
 
 
-class SomaticSniper(Caller):
+class SomaticSniper(Workflow):
 
 	def setCustomEnvironment(self, sample, options):
 		# Define the relevant filenames
@@ -688,7 +688,7 @@ class SomaticSniper(Caller):
 		return output_result
 
 
-class Strelka(Caller):
+class Strelka(Workflow):
 
 	def setCustomEnvironment(self, sample, options):
 		self.caller_name = "Strelka"
@@ -831,7 +831,7 @@ class Strelka(Caller):
 			shutil.copyfile(source, destination)
 
 
-class Varscan(Caller):
+class Varscan(Workflow):
 
 	def setCustomEnvironment(self, sample, options):
 		self.caller_name = "Varscan"
@@ -960,7 +960,7 @@ class Varscan(Caller):
 			shutil.copyfile(abs_source, destination)
 
 
-class HaplotypeCaller(Caller):
+class HaplotypeCaller(Workflow):
 	def __init__(self, sample, options, input_bam = None):
 		self.input_bam = input_bam
 		self.options = options
@@ -1055,7 +1055,7 @@ class HaplotypeCaller(Caller):
 		return output_result
 
 
-class BaseQualityScoreRecalibration(Caller):
+class BaseQualityScoreRecalibration(Workflow):
 
 	def setCustomEnvironment(self, sample, options):
 		self.caller_name = "BaseQualityScoreRecalibration"
@@ -1198,7 +1198,7 @@ class BaseQualityScoreRecalibration(Caller):
 # ----------------------------------------------------------------------------------------------------
 
 
-class VarscanCopynumber(Caller):
+class VarscanCopynumber(Workflow):
 
 	def setCustomEnvironment(self, sample, options):
 		self.caller_name = "Varscan"
@@ -1299,7 +1299,7 @@ class VarscanCopynumber(Caller):
 
 		return output_result
 
-class CNVkit(Caller):
+class CNVkit(Workflow):
 
 	def setCustomEnvironment(self, sample, options):
 		self.caller_name = "CNVKit"
@@ -1342,7 +1342,7 @@ class CNVkit(Caller):
 		return output_result
 
 
-class FREEC(Caller):
+class FREEC(Workflow):
 	def setCustomEnvironment(self, sample, options):
 		self.caller_name = "FREEC"
 		self.output_folder = getPipelineFolder('variants-copynumber', sample['PatientID'], self.caller_name)
