@@ -183,7 +183,8 @@ class Caller:
 			verbose = VERBOSE_LEVEL,
 		)
 
-		self._verifySessionStatus(caller_session)
+		#self._verifySessionStatus(caller_session)
+		self.verifyOutputFiles()
 
 		command_status = caller_session.getStatus()
 		return command_status
@@ -301,6 +302,7 @@ class Caller:
 
 		output_status = [(os.path.exists(fn), fn) for fn in self.full_output]
 		if any(not i[0] for i in output_status):
+			print("The output files from {} were not generated correctly.".format(self.caller_name))
 			print("Some output files were not created: ")
 			for s, f in output_status:
 				print("\t{}\t{}".format(s, f))
@@ -962,7 +964,11 @@ class HaplotypeCaller(Caller):
 	def __init__(self, sample, options, input_bam = None):
 		self.input_bam = input_bam
 		self.options = options
+		print("input_bam: ", input_bam)
+		self.full_output = []
 		super().__init__(sample, options)
+
+
 
 	def setCustomEnvironment(self, sample, options):
 		self.caller_name = "HaplotypeCaller"
@@ -973,9 +979,10 @@ class HaplotypeCaller(Caller):
 			call_status = self.dnaWorkflow(sample, self.options)
 		else:
 			call_status = self.rnaWorkflow(sample, self.options)
-
+		
 		self.final_output = call_status['outputFiles']
 		self.full_output = [self.final_output]
+
 
 	def dnaWorkflow(self, sample, options):
 		raw_variant_file = self.abs_prefix + ".RNA.raw_variants.vcf"
@@ -1083,7 +1090,7 @@ class BaseQualityScoreRecalibration(Caller):
 		self.full_output    = [
 			self.recalibration_table,
 			self.covariate_table,
-			self.recalibration_plots,
+		#	self.recalibration_plots,
 			self.cigar_bam,
 			self.realigned_bam
 		]
@@ -1672,7 +1679,8 @@ class DNAWorkflow(BasePipeline):
 class RNAWorkflow(BasePipeline):
 	def runWorkflow(self, sample, options, workflow_callers):
 
-		processed_bam = BaseQualityScoreRecalibration(sample, options)
+		bqsr = BaseQualityScoreRecalibration(sample, options)
+		processed_bam = bqsr.final_output
 
 		if 'haplotypecaller' in workflow_callers:
 			haplotypecaller_status = HaplotypeCaller(sample, options, processed_bam)
