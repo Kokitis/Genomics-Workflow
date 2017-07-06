@@ -1,3 +1,5 @@
+import filetools
+import os
 from ..settings import Settings
 
 class BasePipeline:
@@ -50,13 +52,13 @@ class BasePipeline:
 
 		md5_normal = filetools.generateFileMd5(sample['NormalBAM'])
 		expected_md5sum_normal = API(sample['NormalUUID'], 'files')
-		if md5_normal != expected_md5sum_normal and not DEBUG:
+		if md5_normal != expected_md5sum_normal:
 			message = "The Normal BAM (ID {}) does not have the correct md5sum!".format(sample['NormalID'])
 			raise ValueError(message)
 
 		md5_sample = filetools.generateFileMd5(sample['TumorBAM'])
 		expected_md5sum_sample = API(sample['SampleUUID'], 'files')
-		if md5_sample != expected_md5sum_sample and not DEBUG:
+		if md5_sample != expected_md5sum_sample:
 			message = "The Tumor BAM (ID {}) does not have the correct md5sum!".format(sample['SampleID'])
 			raise ValueError(message)
 

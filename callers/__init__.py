@@ -1,4 +1,5 @@
 #from main import getPipelineFolder
+from ..default_values import GITHUB_FOLDER
 from .muse import *
 from .mutect import *
 from .somaticsniper import *
