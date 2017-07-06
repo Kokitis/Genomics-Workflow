@@ -1,6 +1,6 @@
-
-GITHUB_FOLDER = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
+import os
 import sys
+GITHUB_FOLDER = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
 sys.path.append(GITHUB_FOLDER)
 print(GITHUB_FOLDER)
 

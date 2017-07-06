@@ -1,11 +1,11 @@
 import os
-from .basicworkflow import Workflow, getPipelineFolder
+from .basicworkflow import Workflow
 
 class CNVkit(Workflow):
 
 	def setCustomEnvironment(self, sample, options):
 		self.caller_name = "CNVKit"
-		self.output_folder = getPipelineFolder('variants-copynumber', sample['PatientID'], self.caller_name)
+		self.output_folder = options['variants-copynumber', sample['PatientID'], self.caller_name]
 		self.final_output = os.path.join(self.output_folder, 'reference_cnv.cnn')
 		self.full_output = [
 			sample['SampleID'] + '.cns',

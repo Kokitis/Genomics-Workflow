@@ -1,5 +1,5 @@
 import os
-from .basicworkflow import Workflow, getPipelineFolder
+from .basicworkflow import Workflow
 
 class BaseQualityScoreRecalibration(Workflow):
 
@@ -7,7 +7,7 @@ class BaseQualityScoreRecalibration(Workflow):
 		self.caller_name = "BaseQualityScoreRecalibration"
 		
 		self.output_folder = os.path.join(
-			getPipelineFolder('variants-rna', sample['PatientID'])
+			options['variants-rna', sample['PatientID']]
 		)
 
 		self.input_bam = sample['RNABAM']

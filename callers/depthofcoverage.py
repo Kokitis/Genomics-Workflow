@@ -1,12 +1,12 @@
 import os
-from .basicworkflow import Workflow, getPipelineFolder
+from .basicworkflow import Workflow
 
 class DepthOfCoverage(Workflow):
 
 	def setCustomEnvironment(self, sample, options):
 		self.caller_name = "DepthOfCoverage"
 		self.gene_list = os.path.join(
-			getPipelineFolder('reference'),
+			options['reference', None, None],
 			"GRCh38-hg38-NCBIRefSeq-UCSCRefSeq-allFieldsFromTable-WholeGene.txt.sorted.tsv"
 		)
 		self.final_output = self.abs_prefix + ".sample_gene_summary"

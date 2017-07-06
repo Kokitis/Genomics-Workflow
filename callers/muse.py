@@ -1,5 +1,5 @@
 import os
-from .basicworkflow import Workflow, getPipelineFolder
+from .basicworkflow import Workflow
 
 class MuSE(Workflow):
 

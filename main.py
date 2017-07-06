@@ -4,80 +4,13 @@ import os
 import shutil
 import isodate
 import gdc_api
-import cmd_parser
-import configparser
+import settings
 from pprint import pprint
 from callers import *
-
-from callers import *
-from pipeline_structure import *
 
 # --------------------------------- Global Variables ----------------------------
 now = datetime.datetime.now
 
-"""
-# The parent folder the pipeline will be run in.
-PIPELINE_DIRECTORY = "/home/upmc/Documents/Variant_Discovery_Pipeline"
-# File to save the console output to. Only used when the console output is supressed.
-CONSOLE_LOG_FILE = ""
-# File containing a test sample.
-SAMPLE_LOG_FILE = os.path.join(PIPELINE_DIRECTORY, "0_config_files", "sample_logV2.tsv")
-README_FILE     = os.path.join(PIPELINE_DIRECTORY, "0_readme_files", "readme.{0}.txt".format(now().isoformat()))
-# Whether to use backwards-compatible filenames
-BACKWARDS_COMPATIBLE = False
-# Whether to overwrite any existing files
-FORCE_OVERWRITE = False
-
-DEBUG = True
-VERBOSE_LEVEL = 4
-# ----------------------------------------------------------------------------------------------------
-# ------------------------------------ Set Up Global Functions ---------------------------------------
-# ----------------------------------------------------------------------------------------------------
-
-def generateTimestamp():
-	timestamp = now().isoformat()
-	timestamp = timestamp.split('.')[0]
-	return timestamp
-
-
-def getsize(path, total = True):
-	sizes = []
-	if os.path.isfile(path):
-		sizes += [os.path.getsize(path)]
-	elif os.path.isdir(path):
-		dirsize = list()
-		for fn in os.listdir(path):
-			new_path = os.path.join(path, fn)
-			dirsize += getsize(new_path, total = False)
-		sizes += dirsize
-	else:
-		pass
-	if total: sizes = sum(sizes)
-	return sizes
-
-def getPipelineFolder(step, patientId = None, caller_name = None):
-
-	if step == 'variants-somatic':
-		subfolders = ["3_called_variants", patientId, caller_name]
-	elif step == 'variants-copynumber':
-		subfolders = ["4_called_cnvs", patientId, caller_name]
-	elif step == 'temporary':
-		subfolders = ['5_temporary_files', patientId]
-	elif step == 'bam-files':
-		subfolders = []
-	elif step == 'reference':
-		return "/home/upmc/Documents/Reference/"
-	elif step == 'variants-rna':
-		subfolders = ['7_rna_variants', patientId]
-	else:
-		message = "'{}' is not a valid step in the pipeline!".format(step)
-		raise ValueError(message)
-
-	pipeline_folder = os.path.join(PIPELINE_DIRECTORY, *subfolders)
-	filetools.checkDir(pipeline_folder, True)
-	
-	return pipeline_folder
-"""
 # ----------------------------------------------------------------------------------------------------
 # ------------------------------------- Variant Caller Pipeline --------------------------------------
 # ----------------------------------------------------------------------------------------------------
@@ -102,8 +35,7 @@ class BasePipeline:
 
 		# verify that the options file exists and load it.
 		self._checkIfPathExists('options file', options_filename)
-		options = configparser.ConfigParser()
-		options.read(options_filename)
+		options = settings.read(options_filename)
 
 		# Verify that the required programs exist
 		self._checkIfPathExists('GATK', 			options['Programs']['GATK'])
@@ -237,8 +169,8 @@ API = gdc_api.GDCAPI()
 
 if __name__ == "__main__" or True:
 
-	command_line_options = cmd_parser.getCMDArgumentParser().parse_args()
-
+	#command_line_options = cmd_parser.getCMDArgumentParser().parse_args()
+	PIPELINE_DIRECTORY = "/home/upmc/Documents/Variant_Discovery_Pipeline"
 	default_config_filename = os.path.join(PIPELINE_DIRECTORY, "0_config_files", "pipeline_project_options.txt")
 	
 	default_sample_filename = os.path.join(PIPELINE_DIRECTORY, "debug_sample_list.tsv")

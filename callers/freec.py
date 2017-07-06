@@ -1,11 +1,11 @@
 import os
 import csv
-from .basicworkflow import Workflow, getPipelineFolder
+from .basicworkflow import Workflow
 
 class FREEC(Workflow):
 	def setCustomEnvironment(self, sample, options):
 		self.caller_name = "FREEC"
-		self.output_folder = getPipelineFolder('variants-copynumber', sample['PatientID'], self.caller_name)
+		self.output_folder = options['variants-copynumber', sample['PatientID'], self.caller_name]
 		
 		self.base_prefix = "{normal}_vs_{tumor}.{prefix}".format(
 			tumor  = sample['SampleID'],

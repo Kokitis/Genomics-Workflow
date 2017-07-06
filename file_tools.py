@@ -83,7 +83,6 @@ def countVariants(filename):
                 chromosomes[record.CHROM] += 1
     return chromosomes
 
-    pprint(chromosomes)
 def compareOutput(left, right):
     print("Left File: ", left)
     print("Right File: ", right)

@@ -49,26 +49,3 @@ def getsize(path, total = True):
 		pass
 	if total: sizes = sum(sizes)
 	return sizes
-
-def getPipelineFolder(step, patientId = None, caller_name = None):
-
-	if step == 'variants-somatic':
-		subfolders = ["3_called_variants", patientId, caller_name]
-	elif step == 'variants-copynumber':
-		subfolders = ["4_called_cnvs", patientId, caller_name]
-	elif step == 'temporary':
-		subfolders = ['5_temporary_files', patientId]
-	elif step == 'bam-files':
-		subfolders = []
-	elif step == 'reference':
-		return "/home/upmc/Documents/Reference/"
-	elif step == 'variants-rna':
-		subfolders = ['7_rna_variants', patientId]
-	else:
-		message = "'{}' is not a valid step in the pipeline!".format(step)
-		raise ValueError(message)
-
-	pipeline_folder = os.path.join(PIPELINE_DIRECTORY, *subfolders)
-	filetools.checkDir(pipeline_folder, True)
-	
-	return pipeline_folder

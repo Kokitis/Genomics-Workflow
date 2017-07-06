@@ -1,5 +1,5 @@
 import os
-from .basicworkflow import Workflow, getPipelineFolder
+from .basicworkflow import Workflow
 
 class Varscan(Workflow):
 
@@ -122,12 +122,7 @@ class Varscan(Workflow):
 		return output_result
 
 	def renameOutputFiles(self):
-		return None
-		for source in os.listdir(self.output_folder):
-			#destination = os.path.join(self.output_folder, source.replace('varscan', 'raw'))
-			destination = os.path.splitext(source)[0] + ".varscan.vcf"
-			abs_source = os.path.join(self.output_folder, source)
-			shutil.copyfile(abs_source, destination)
+		pass
 
 
 class VarscanCopynumber(Workflow):
@@ -135,7 +130,7 @@ class VarscanCopynumber(Workflow):
 	def setCustomEnvironment(self, sample, options):
 		self.caller_name = "Varscan"
 
-		self.output_folder = getPipelineFolder('variants-copynumber', sample['PatientID'], self.caller_name)
+		self.output_folder = options['variants-copynumber', sample['PatientID'], self.caller_name]
 
 		self.base_prefix = "{normal}_vs_{tumor}.{prefix}".format(
 			tumor=sample['SampleID'],

@@ -7,12 +7,10 @@ import isodate
 GITHUB_FOLDER = os.path.dirname(os.path.dirname(os.path.dirname(os.path.realpath(__file__))))
 import sys
 sys.path.append(GITHUB_FOLDER)
-#print(GITHUB_FOLDER)
-#import systemtools
-#import filetools
+
 import pytools.systemtools as systemtools
 import pytools.filetools as filetools
-from pipeline_structure import *
+#from pipeline_structure import *
 import datetime
 print(dir())
 
@@ -36,7 +34,7 @@ class Workflow:
 		self.min_coverage        = options['Parameters']['MIN_COVERAGE']
 
 		##### Define the paths and common partial filenames
-		self.output_folder = getPipelineFolder('variants-somatic', sample['PatientID'], self.caller_name)
+		self.output_folder = options['variants-somatic', sample['PatientID'], self.caller_name]
 		#self.output_folder = options['Pipeline Options']['somatic pipeline folder']
 		
 		self.base_prefix = "{normal}_vs_{tumor}.{prefix}".format(
@@ -46,7 +44,7 @@ class Workflow:
 		)
 		self.abs_prefix = os.path.join(self.output_folder, self.base_prefix)
 	
-		self.temp_folder = getPipelineFolder('temporary', sample['PatientID'])
+		self.temp_folder = options['temporary', sample['PatientID']]
 		#self.temp_folder = options['Pipeline Options']['temporary folder']
 		self.temp_files = list()
 
@@ -54,6 +52,7 @@ class Workflow:
 		filetools.checkDir(self.temp_folder, True)
 		
 		self.setCustomEnvironment(sample, options)
+		
 		self.console_file = os.path.join(
 			self.output_folder,
 			self.caller_name + ".console_log.txt"
@@ -79,7 +78,7 @@ class Workflow:
 
 		self.renameOutputFiles()
 
-		self.verifyOutputFiles()
+		self.verifyOutputFiles(self.full_output)
 		
 		##### Update the caller log
 		program_stop = datetime.datetime.now()
