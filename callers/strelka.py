@@ -1,4 +1,5 @@
 import os
+import shutil
 from .basicworkflow import Workflow
 
 class Strelka(Workflow):
