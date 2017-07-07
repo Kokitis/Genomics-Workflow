@@ -25,22 +25,31 @@ class GenomicsPipeline:
 
 		sample_list = tabletools.Table(sample_filename)
 
+		pipeline_options = Settings(options_filename)
+
 		for index, current_sample in sample_list:
-			self._runSample(current_sample, options_filename, dna_callers, copynumber_callers, rna_callers)
+			self._runSample(current_sample, pipeline_options, dna_callers, copynumber_callers, rna_callers)
 
 	@staticmethod
-	def _runSample(sample, options_filename, dna_callers, copynumber_callers, rna_callers):
+	def _runSample(sample, sample_options, dna_callers, copynumber_callers, rna_callers):
 		sample = sample.to_dict()
 		_use_value = sample.get('Use', False)
 		_use_this_sample = _use_value not in {False, 'false', 0, '0', 'no', 'No'}
 
 		if _use_this_sample:
+			
 			if dna_callers:
-				dna_pipeline_status = DNAWorkflow(sample, options_filename, dna_callers, **kwargs)
+				dna_pipeline_status = DNAWorkflow(sample, sample_options, dna_callers, **kwargs)
+
 			if rna_callers:
-				rna_pipeline_status = RNAWorkflow(sample, options_filename, rna_callers, **kwargs)
+				rna_pipeline_status = RNAWorkflow(sample, sample_options, rna_callers, **kwargs)
+
 			if copynumber_callers:
-				cn_pipeline_status = CopynumberWorkflow(sample, options_filename, copynumber_callers, **kwargs)
+				cn_pipeline_status = CopynumberWorkflow(sample, sample_options, copynumber_callers, **kwargs)
+
+	@staticmethod
+	def _importSettings(options_filename):
+
 
 
 API = gdc_api.GDCAPI()

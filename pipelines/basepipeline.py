@@ -1,24 +1,24 @@
 from github import filetools, API
 import os
-from settings import Settings
 
 
 
 class BasePipeline:
 
-	def __init__(self, sample, options_filename, callers):
+	def __init__(self, sample, pipeline_options, callers):
 		print("Using callers: ", ",".join(callers))
-		pipeline_options = self._verifyPipelineFiles(options_filename)
+		
+		self._verifyPipelineFiles()
 		self._verifySampleFiles(sample, pipeline_options)
 
 		self.runWorkflow(sample, pipeline_options, callers)
 
-	def _verifyPipelineFiles(self, options_filename):
+	def _verifyPipelineFiles(self):
 		""" Verifies that the files required to run the pipeline exist """
 
 		# verify that the options file exists and load it.
-		self._checkIfPathExists('options file', options_filename)
-		options = Settings(options_filename)
+		#self._checkIfPathExists('options file', options_filename)
+		
 
 		# Verify that the required programs exist
 		self._checkIfPathExists('GATK', 			options['Programs']['GATK'])
