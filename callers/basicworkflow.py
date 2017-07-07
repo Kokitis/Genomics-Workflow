@@ -20,6 +20,8 @@ class Workflow:
 		self.dbSNP      = options['Reference Files']['dbSNP']
 		self.cosmic     = options['Reference Files']['COSMIC']
 
+		self.verbose_level = options['globals']['verbose']
+
 		self.program             = options['Programs'].get(self.caller_name.lower())
 		self.gatk_program        = options['Programs']['GATK']
 		self.max_cpu_threads     = options['Parameters']['MAX_CORES']
@@ -111,7 +113,7 @@ class Workflow:
 			expected_output = expected_output,
 			command_filename = self.console_file,
 			output_filename = output_filename,
-			verbose = VERBOSE_LEVEL,
+			verbose = self.verbose_level,
 		)
 
 		#self._verifySessionStatus(caller_session)
@@ -150,7 +152,7 @@ class Workflow:
 
 		with open(self.readme_filename, 'a') as readme_file:
 			readme_file.write(self.caller_name + '\n')
-			readme_file.write("Started the caller at {0}\n".format(now().isoformat()))
+			readme_file.write("Started the caller at {0}\n".format(datetime.datetime.now().isoformat()))
 
 			for key, value in sample.items():
 				readme_file.write("{0:<15}{1}\n".format(key + ':', value))
@@ -159,7 +161,7 @@ class Workflow:
 
 	def addToReadme(self, command, label, expected_output):
 		if not os.path.exists(self.readme_filename): return None
-		current_datetime = now()
+		current_datetime = datetime.datetime.now()
 		line_len = 100
 		num = line_len - (len(label) + len(current_datetime.isoformat()))
 		linebreak = '#' * int(num / 2) + "{0} {1}".format(current_datetime.isoformat(), label) + "#" * int(num/2) + '\n'

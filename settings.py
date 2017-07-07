@@ -31,6 +31,7 @@ class Settings:
 	def _parseKeywordArguments(self, kwargs):
 		kwargs['debug'] = kwargs.get('debug', False)
 		kwargs['overwrite'] = kwargs.get('overwrite', False)
+		kwargs['verbose'] = kwargs.get('verbose', 'labels')
 		return kwargs
 	def getPipelineFolder(self, step, patientId = None, caller_name = None):
 

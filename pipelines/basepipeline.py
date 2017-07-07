@@ -8,12 +8,12 @@ class BasePipeline:
 	def __init__(self, sample, pipeline_options, callers):
 		print("Using callers: ", ",".join(callers))
 		
-		self._verifyPipelineFiles()
+		self._verifyPipelineFiles(pipeline_options)
 		self._verifySampleFiles(sample, pipeline_options)
 
 		self.runWorkflow(sample, pipeline_options, callers)
 
-	def _verifyPipelineFiles(self):
+	def _verifyPipelineFiles(self, options):
 		""" Verifies that the files required to run the pipeline exist """
 
 		# verify that the options file exists and load it.
