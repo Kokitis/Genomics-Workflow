@@ -1,5 +1,5 @@
 from .basepipeline import BasePipeline
-from ..callers import *
+from callers import *
 
 class CopynumberWorkflow(BasePipeline):
 	def runWorkflow(self, sample, options, workflow_callers):

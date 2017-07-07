@@ -6,7 +6,9 @@ import isodate
 import gdc_api
 import settings
 from pprint import pprint
+
 from pipelines import *
+from github import tabletools
 
 # --------------------------------- Global Variables ----------------------------
 now = datetime.datetime.now
@@ -34,11 +36,11 @@ class GenomicsPipeline:
 
 		if _use_this_sample:
 			if dna_callers:
-				dna_pipeline_status = DNAWorkflow(sample, options_filename, dna_callers)
+				dna_pipeline_status = DNAWorkflow(sample, options_filename, dna_callers, **kwargs)
 			if rna_callers:
-				rna_pipeline_status = RNAWorkflow(sample, options_filename, rna_callers)
+				rna_pipeline_status = RNAWorkflow(sample, options_filename, rna_callers, **kwargs)
 			if copynumber_callers:
-				cn_pipeline_status = CopynumberWorkflow(sample, options_filename, copynumber_callers)
+				cn_pipeline_status = CopynumberWorkflow(sample, options_filename, copynumber_callers, **kwargs)
 
 
 API = gdc_api.GDCAPI()

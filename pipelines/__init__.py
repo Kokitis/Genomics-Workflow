@@ -1,5 +1,4 @@
-import sys
-from ..default_values import GITHUB_FOLDER
-sys.path.append(GITHUB_FOLDER)
 
-import pytools.filetools as filetools
+from .dnapipeline import DNAWorkflow
+from .rnapipeline import RNAWorkflow
+from .copynumberpipeline import CopynumberWorkflow

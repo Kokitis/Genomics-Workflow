@@ -1,5 +1,5 @@
 from .basepipeline import BasePipeline
-from ..callers import *
+from callers import *
 
 class DNAWorkflow(BasePipeline):
 	def runWorkflow(self, sample, workflow_options, workflow_callers):

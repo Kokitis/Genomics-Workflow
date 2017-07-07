@@ -4,15 +4,11 @@ import os
 import shutil
 import isodate
 
-GITHUB_FOLDER = os.path.dirname(os.path.dirname(os.path.dirname(os.path.realpath(__file__))))
-import sys
-sys.path.append(GITHUB_FOLDER)
+from github import systemtools
+from github import filetools
 
-import pytools.systemtools as systemtools
-import pytools.filetools as filetools
-#from pipeline_structure import *
 import datetime
-print(dir())
+
 
 class Workflow:
 	def __init__(self, sample, options):
@@ -36,7 +32,7 @@ class Workflow:
 		##### Define the paths and common partial filenames
 		self.output_folder = options['variants-somatic', sample['PatientID'], self.caller_name]
 		#self.output_folder = options['Pipeline Options']['somatic pipeline folder']
-		
+		print(self.output_folder)
 		self.base_prefix = "{normal}_vs_{tumor}.{prefix}".format(
 			tumor   = sample['SampleID'], 
 			normal  = sample['NormalID'],
@@ -61,11 +57,16 @@ class Workflow:
 			self.output_folder,
 			self.caller_name + ".readme.txt"
 		)
-		
-		if FORCE_OVERWRITE and os.path.exists(self.output_folder):
-			shutil.rmtree(self.output_folder)
+		print("Folder exists: ", os.path.exists(self.output_folder))
+		print("overwrite", options['globals']['overwrite'], type(options['globals']['overwrite']))
 
-		if DEBUG:
+
+		if options['globals']['overwrite'] and os.path.exists(self.output_folder):
+			shutil.rmtree(self.output_folder)
+		print(self.output_folder)
+		print("Folder Exists: ", os.path.exists(self.output_folder))
+
+		if options['globals']['debug']:
 			print("Running ", self.caller_name)
 			print("\tprogram location: ", self.program)
 			print("\toutput folder: ", self.output_folder)

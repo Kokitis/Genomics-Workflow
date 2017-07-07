@@ -1,10 +1,6 @@
 import configparser
 import os
-import sys
-GITHUB_FOLDER = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
-print(GITHUB_FOLDER)
-sys.path.append(GITHUB_FOLDER)
-import pytools.filetools as filetools
+from github import filetools
 
 class Settings:
 	"""
@@ -16,19 +12,26 @@ class Settings:
 	def __init__(self, filename, **kwargs):
 		self.options = configparser.ConfigParser()
 		self.options.read(filename)
-		self.options['Globals'] = kwargs
+		kwargs = self._parseKeywordArguments(kwargs)
+		self.keyword_arguments = kwargs
 		self.base_pipeline_folder = self.options['Pipeline Options']['pipeline folder']
 
 	def __call__(self, *args):
 		return self.__getitem__(*args)
 
 	def __getitem__(self, index):
-		print("Index: ", index)
+
 		if isinstance(index, tuple):
 			return self.getPipelineFolder(*index)
+		elif index == 'globals':
+			return self.keyword_arguments
 		else:
 			return self.options[index]
 
+	def _parseKeywordArguments(self, kwargs):
+		kwargs['debug'] = kwargs.get('debug', False)
+		kwargs['overwrite'] = kwargs.get('overwrite', False)
+		return kwargs
 	def getPipelineFolder(self, step, patientId = None, caller_name = None):
 
 		if step == 'variants-somatic':

@@ -1,5 +1,5 @@
 from .basepipeline import BasePipeline
-from ..callers import *
+from callers import *
 class RNAWorkflow(BasePipeline):
 	def runWorkflow(self, sample, options, workflow_callers):
 

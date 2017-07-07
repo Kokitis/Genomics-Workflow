@@ -1,13 +1,15 @@
-import filetools
+from github import filetools, API
 import os
-from ..settings import Settings
+from settings import Settings
+
+
 
 class BasePipeline:
 
 	def __init__(self, sample, options_filename, callers):
 		print("Using callers: ", ",".join(callers))
 		pipeline_options = self._verifyPipelineFiles(options_filename)
-		self._verifySampleFiles(sample)
+		self._verifySampleFiles(sample, pipeline_options)
 
 		self.runWorkflow(sample, pipeline_options, callers)
 
@@ -44,7 +46,7 @@ class BasePipeline:
 
 		return options
 
-	def _verifySampleFiles(self, sample):
+	def _verifySampleFiles(self, sample, options):
 		""" Verifies that all required sample files exist and are not corrupted. """
 		#Verify BAM Files
 		self._checkIfPathExists('NormalBAM', sample['NormalBAM'])
@@ -52,13 +54,13 @@ class BasePipeline:
 
 		md5_normal = filetools.generateFileMd5(sample['NormalBAM'])
 		expected_md5sum_normal = API(sample['NormalUUID'], 'files')
-		if md5_normal != expected_md5sum_normal:
+		if md5_normal != expected_md5sum_normal and not options['globals']['debug']:
 			message = "The Normal BAM (ID {}) does not have the correct md5sum!".format(sample['NormalID'])
 			raise ValueError(message)
 
 		md5_sample = filetools.generateFileMd5(sample['TumorBAM'])
 		expected_md5sum_sample = API(sample['SampleUUID'], 'files')
-		if md5_sample != expected_md5sum_sample:
+		if md5_sample != expected_md5sum_sample and not options['globals']['debug']:
 			message = "The Tumor BAM (ID {}) does not have the correct md5sum!".format(sample['SampleID'])
 			raise ValueError(message)
 
