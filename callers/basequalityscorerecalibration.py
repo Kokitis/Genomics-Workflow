@@ -135,5 +135,5 @@ class BaseQualityScoreRecalibration(Workflow):
 				after       = self.covariate_table,
 				plots       = self.recalibration_plots)
 		label = "Generate Recalibration Plots"
-		output_result = self.runCallerCommand(command, label, self.recalibration_plots)
+		output_result = self.runCallerCommand(command, label, [])
 		return output_result

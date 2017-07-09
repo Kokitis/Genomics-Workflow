@@ -1,5 +1,6 @@
 #from main import getPipelineFolder
-
+from .basequalityscorerecalibration import *
+from .haplotypecaller import *
 from .muse import *
 from .mutect import *
 from .somaticsniper import *
