@@ -35,6 +35,12 @@ class Varscan(Workflow):
 		#self.runDoubleVariantDiscovery(sample)
 		processing_status = self.postProcessing()
 
+		workflow_status = [
+			pileup_status,
+			variant_discovery_status,
+			processing_status
+		]
+
 	def generateSinglePileup(self, sample):
 		pileup = os.path.join(
 			self.temp_folder,
@@ -164,6 +170,12 @@ class VarscanCopynumber(Workflow):
 		copynumber_caller_status  = self.copyCaller()
 
 		segmentation_status = self.circularBinarySegmentation()
+
+		workflow_status = [
+			copynumber_caller_status,
+			copynumber_ratio_status,
+			segmentation_status
+		]
 
 	def circularBinarySegmentation(self):
 		# NEED to strip first row of table before r script

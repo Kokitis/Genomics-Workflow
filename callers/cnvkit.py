@@ -17,6 +17,8 @@ class CNVkit(Workflow):
 	def runCallerWorkflow(self, sample):
 		call_status = self.runBatchCommand(sample)
 
+		workflow_status = [call_status]
+
 
 	def runBatchCommand(self, sample):
 		reference_cnn = os.path.join(self.output_folder, "reference_cnv.cnn")

@@ -40,21 +40,7 @@ def compareCallers(left, right):
     output_file = "left-right-output.vcf"
 
     order = "left,right" #ordered by VAF confidence
-    
-    prioritize_command = """java -jar {gatk} \
-        -T CombineVariants \
-        -R {reference} \
-        --variant:left {left} \
-        --variant:right {right} \
-        -o {output} \
-        -genotypeMergeOptions PRIORITIZE \
-        -priority {rod}""".format(
-            gatk = gatk_program,
-            reference = reference,
-            left = left,
-            right = right,
-            output = output_file,
-            rod = order)
+
     uniqueify_command = """java -jar {gatk} \
         -T CombineVariants \
         -R {reference} \

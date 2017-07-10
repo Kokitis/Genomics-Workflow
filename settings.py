@@ -27,12 +27,13 @@ class Settings:
 			return self.keyword_arguments
 		else:
 			return self.options[index]
-
-	def _parseKeywordArguments(self, kwargs):
+	@staticmethod
+	def _parseKeywordArguments(kwargs):
 		kwargs['debug'] = kwargs.get('debug', False)
 		kwargs['overwrite'] = kwargs.get('overwrite', False)
 		kwargs['verbose'] = kwargs.get('verbose', 'labels')
 		return kwargs
+
 	def getPipelineFolder(self, step, patientId = None, caller_name = None):
 
 		if step == 'variants-somatic':
@@ -47,14 +48,30 @@ class Settings:
 			return "/home/upmc/Documents/Reference/"
 		elif step == 'variants-rna':
 			subfolders = ['7_rna_variants', patientId]
+
+		elif step == 'truthset':
+			subfolders = ('truthset')
+		elif step == 'somaticseq':
+			subfolders = ('somaticseq')
+		elif step == 'somaticseq-training':
+			subfolders = ('somaticseq', 'training')
+		elif step == 'somaticseq-prediction':
+			subfolders = ('somaticseq', 'prediction')
 		else:
 			message = "'{}' is not a valid step in the pipeline!".format(step)
 			raise ValueError(message)
 
 		pipeline_folder = os.path.join(self.base_pipeline_folder, *subfolders)
-		#filetools.checkDir(pipeline_folder, True)
+		filetools.checkDir(pipeline_folder, True)
 		
 		return pipeline_folder
+	def getPipelineFile(self, name):
+		if name == 'sample log':
+			fn = os.path.join(self.base_pipeline_folder, "0_config_files", "benchmark_log.tsv")
+		else:
+			message = "'{}' is not defined as a pipeline file!".format(name)
+			raise FileNotFoundError(message)
+		return fn
 
 def read(filename):
 	return Settings(filename)

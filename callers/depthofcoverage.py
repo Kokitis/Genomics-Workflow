@@ -24,6 +24,7 @@ class DepthOfCoverage(Workflow):
 
 	def runCallerWorkflow(self, sample):
 		self.status = self.determineDepthOfCoverage(sample, output_filename = self.final_output)
+		workflow_status = self.status
 
 	def determineDepthOfCoverage(self, sample, output_filename):
 

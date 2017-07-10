@@ -1,20 +1,14 @@
 import requests
-import hashlib
-import shutil
 import os
-import subprocess
-import collections
 import datetime
-import time
-import shlex
 import csv
 import json
 from pprint import pprint
 
 now = datetime.datetime.now
 
-#Check if Windows or Linux
-#print(os.name)
+from github import tabletools
+
 if os.name == 'nt': #Windows
     gdc_location = "C:\\Users\\Deitrickc\\Downloads\\Genomic Programs\\gdc-client"
     gdc_program  = os.path.join(gdc_location, 'gdc-client.exe')
@@ -34,10 +28,7 @@ else:
     gdc_program  = os.path.join(gdc_location, 'gdc-client-2016-10-19')
 
 #user_token = os.path.join(gdc_location, 'tokens', max(list(os.listdir(os.path.join(gdc_location, "tokens")))))
-def loadCSV(filename):
-    with open(filename, 'r') as file1:
-        reader = list(csv.DictReader(file1, delimiter = '\t'))
-    return reader
+
 def _get_exome_targets(catalog_number):
     """ Maps an exome target url to a local file """
     if catalog_number is not None:
@@ -68,7 +59,7 @@ def getFileLocation(io, col = 'id'):
             col: {id, 'barcode', 'category', 'patient', 'sample type'}; default 'id'
                 The column of the manifest file to search in.
     """
-    all_file_locations, all_file_locations_columns = loadCSV(file_locations_filename, True)
+    all_file_locations, all_file_locations_columns = tabletools.readCSV(file_locations_filename, True)
     rows = [i for i in all_file_locations if i[col] == io]
 
     if len(rows) == 1:
@@ -89,7 +80,7 @@ def barcodeToUuid(barcodes):
 
     clinical_data = list()
     for fn in clinical_files:
-        clinical_data += loadCSV(fn)
+        clinical_data += tabletools.readCSV(fn)
 
     if barcode_type == 'case':
         uuids = [row['bcr_patient_uuid'] for row in clinical_data if row['bcr_patient_barcode'] in barcodes]
@@ -134,7 +125,8 @@ class GDCAPI:
             reader = dict()
             #raise Error
         return reader
-    def loadLocalApiFiles(self):
+    @staticmethod
+    def loadLocalApiFiles():
         with open(local_file_api_filename, 'r') as file1:
             local_file_api = json.loads(file1.read())
 
@@ -475,8 +467,8 @@ class GDCAPI:
             response = self.local_case_api[uuid]
 
         return response
-
-    def _raise_invalid_response_error(self, uuid, endpoint, response):
+    @staticmethod
+    def _raise_invalid_response_error(uuid, endpoint, response):
         print("ERROR: The api returned an invalid response!")
         print("\tEndpoint: ", endpoint)
         print("\tUUID: ", uuid)

@@ -1,4 +1,4 @@
-import os
+
 from .basicworkflow import Workflow
 
 class HaplotypeCaller(Workflow):
@@ -17,20 +17,20 @@ class HaplotypeCaller(Workflow):
 	def runCallerWorkflow(self, sample):
 
 		if self.input_bam is None:
-			call_status = self.dnaWorkflow(sample, self.options)
+			call_status = self.dnaWorkflow(sample,)
 		else:
-			call_status = self.rnaWorkflow(sample, self.options)
+			call_status = self.rnaWorkflow(sample,)
 		
 		self.final_output = call_status['outputFiles']
 		self.full_output = [self.final_output]
 
 
-	def dnaWorkflow(self, sample, options):
+	def dnaWorkflow(self, sample):
 		raw_variant_file = self.abs_prefix + ".RNA.raw_variants.vcf"
 		call_status = self.dnaVariantDiscovery(sample, raw_variant_file)
 		return call_status
 
-	def rnaWorkflow(self, sample, options):
+	def rnaWorkflow(self, sample):
 		raw_variant_file 	= self.abs_prefix + ".RNA.raw_variants.vcf"
 		variant_file 		= self.abs_prefix + ".RNA.filtered_variants.vcf"
 		call_status = self.rnaVariantDiscovery(self.input_bam, raw_variant_file)

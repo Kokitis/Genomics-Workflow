@@ -97,6 +97,14 @@ class FREEC(Workflow):
 
 		plot_normal_status = self.generatePlots(self.ratio_normal, self.baf_normal)
 		plot_sample_status = self.generatePlots(self.ratio_sample, self.baf_sample)
+
+		workflow_status = [
+			significance_normal,
+			significance_tumor,
+			plot_normal_status,
+			plot_sample_status
+		]
+
 	
 	def createChrLenFile(self, targets_file):
 		if os.path.exists(self.chrlenfile): return None
@@ -124,11 +132,11 @@ class FREEC(Workflow):
 		expected_output = cnvs + '.p.value.txt'
 
 		#Command used in the documentation
-		command = """cat {script} | R --slave --args {cnvs} {ratios}""".format(
-			script 	= self.assess_significance_script,
-			cnvs 	= cnvs,
-			ratios 	= ratios
-		)
+		#command = """cat {script} | R --slave --args {cnvs} {ratios}""".format(
+		#	script 	= self.assess_significance_script,
+		#	cnvs 	= cnvs,
+		#	ratios 	= ratios
+		#)
 
 		#Reformmatted command
 		command = """Rscript {script} --slave --args {cnvs} {ratios}""".format(
@@ -146,11 +154,11 @@ class FREEC(Workflow):
 		expected_output = ratios + '.png'
 
 		#Command used in the documentation
-		command = """cat {script} | R --slave --args {ploidy} {ratios} {baf}""".format(
-			script = self.plot_script,
-			ploidy = "2",
-			ratios = ratios,
-			baf = baf_file)
+		#command = """cat {script} | R --slave --args {ploidy} {ratios} {baf}""".format(
+		#	script = self.plot_script,
+		#	ploidy = "2",
+		#	ratios = ratios,
+		#	baf = baf_file)
 
 		#reformatted command
 		command = """Rscript {script} --slave --args {ploidy} {ratios} {baf}""".format(

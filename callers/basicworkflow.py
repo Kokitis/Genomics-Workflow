@@ -14,8 +14,9 @@ class Workflow:
 	def __init__(self, sample, options):
 
 		##### Define commonly-used variables
-		program_start = datetime.datetime.now()
 		self.caller_name = self.__class__.__name__
+		self.sample_log = options.getPipelineFile('sample log')
+		self.targets    = sample['ExomeTargets']
 		self.reference  = options['Reference Files']['reference genome']
 		self.dbSNP      = options['Reference Files']['dbSNP']
 		self.cosmic     = options['Reference Files']['COSMIC']
@@ -34,7 +35,7 @@ class Workflow:
 		##### Define the paths and common partial filenames
 		self.output_folder = options['variants-somatic', sample['PatientID'], self.caller_name]
 		#self.output_folder = options['Pipeline Options']['somatic pipeline folder']
-		print(self.output_folder)
+
 		self.base_prefix = "{normal}_vs_{tumor}.{prefix}".format(
 			tumor   = sample['SampleID'], 
 			normal  = sample['NormalID'],
@@ -45,11 +46,11 @@ class Workflow:
 		self.temp_folder = options['temporary', sample['PatientID']]
 		#self.temp_folder = options['Pipeline Options']['temporary folder']
 		self.temp_files = list()
+		self.full_output = []
 
+		self.setCustomEnvironment(sample, options)
 		filetools.checkDir(self.output_folder, True)
 		filetools.checkDir(self.temp_folder, True)
-		
-		self.setCustomEnvironment(sample, options)
 		
 		self.console_file = os.path.join(
 			self.output_folder,
@@ -82,9 +83,7 @@ class Workflow:
 		self.renameOutputFiles()
 
 		self.verifyOutputFiles(self.full_output)
-		
-		##### Update the caller log
-		program_stop = datetime.datetime.now()
+
 
 		#self.updateSampleLog(sample, program_start, program_stop)
 
@@ -188,19 +187,18 @@ class Workflow:
 			'intermediateFiles': ', '.join(self.temp_files),
 			'outputFiles':    ', '.join(self.full_output),
 			'notes':      "",
-			'status':     status,
-			'commands':   '|'.join(self.command_list)
+			'status':     status
 		}
-		writeheaders = not os.path.exists(SAMPLE_LOG_FILE) or os.path.getsize(SAMPLE_LOG_FILE) == 0
+		writeheaders = not os.path.exists(self.sample_log) or os.path.getsize(self.sample_log) == 0
 
 		if not writeheaders:
-			with open(SAMPLE_LOG_FILE, 'r') as file1:
+			with open(self.sample_log, 'r') as file1:
 				reader = csv.DictReader(file1, delimiter = '\t')
 				fieldnames = reader.fieldnames
 		else:
 			fieldnames = sorted(caller_log.keys())
 
-		with open(SAMPLE_LOG_FILE, 'a', newline = '') as file1:
+		with open(self.sample_log, 'a', newline = '') as file1:
 			writer = csv.DictWriter(file1, fieldnames = fieldnames, delimiter = '\t')
 			if writeheaders:
 				writer.writeheader()

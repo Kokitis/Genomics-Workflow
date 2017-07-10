@@ -45,11 +45,20 @@ class BaseQualityScoreRecalibration(Workflow):
 
 		
 		raw_bam 		     = self._getRNABAM(sample)
-		cigar__status        = self.splitCigarReads()
+		cigar_status        = self.splitCigarReads()
 		recalibration_status = self.generateRecalibrationTable()
 		realign_status       = self.recalibrateBAM()
 		covariate_status     = self.generateCovariateTable()
-		recalibration_status = self.generateRecalibrationPlots()
+		recalibration_plot_status = self.generateRecalibrationPlots()
+
+		workflow_status = [
+			raw_bam,
+			cigar_status,
+			recalibration_status,
+			realign_status,
+			covariate_status,
+			recalibration_plot_status
+		]
 
 	@staticmethod
 	def _getRNABAM(sample):

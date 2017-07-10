@@ -1,8 +1,6 @@
 from github import filetools, API
 import os
 
-
-
 class BasePipeline:
 
 	def __init__(self, sample, pipeline_options, callers):
@@ -15,36 +13,21 @@ class BasePipeline:
 
 	def _verifyPipelineFiles(self, options):
 		""" Verifies that the files required to run the pipeline exist """
+		self._verifyCommonDependancies(options)
+		self._verifyLocalDependancies(options)
 
-		# verify that the options file exists and load it.
-		#self._checkIfPathExists('options file', options_filename)
+		return options
 		
-
-		# Verify that the required programs exist
-		self._checkIfPathExists('GATK', 			options['Programs']['GATK'])
-		self._checkIfPathExists('MuSE', 			options['Programs']['muse'])
-		self._checkIfPathExists('MuTect2', 			options['Programs']['mutect2'])
-		self._checkIfPathExists('SomaticSniper', 	options['Programs']['somaticsniper'])
-		self._checkIfPathExists('Strelka', 			options['Programs']['strelka'])
-		self._checkIfPathExists('Varscan2', 		options['Programs']['varscan'])
-		self._checkIfPathExists('bam-readcount', 	options['Programs']['bam-readcount'])
-		self._checkIfPathExists('CNVKit', 			options['Programs']['cnvkit'])
-		self._checkIfPathExists('samtools', 		options['Programs']['samtools'])
-		self._checkIfPathExists('samtools (0.1.6)', options['Programs']['samtools-0.1.6'])
-
+	def _verifyCommonDependancies(self, options):
 		# Verify That the Reference Files Exist
-		
+		self._checkIfPathExists('GATK', 			options['Programs']['GATK'])
 		self._checkIfPathExists('reference genome', options['Reference Files']['reference genome'])
 		self._checkIfPathExists('dbSNP', 			options['Reference Files']['dbSNP'])
 		self._checkIfPathExists('COSMIC', 			options['Reference Files']['cosmic'])
-
-		# Verify that other files exist
-		self._checkIfPathExists(
-			'reference genome index',
-			options['Reference Files']['reference genome'] + '.fai'
-		) #for FREEC
-
-		return options
+		self._checkIfPathExists('samtools', 		options['Programs']['samtools'])
+		self._checkIfPathExists('samtools (0.1.6)', options['Programs']['samtools-0.1.6'])
+	def _verifyLocalDependancies(self, options):
+		pass
 
 	def _verifySampleFiles(self, sample, options):
 		""" Verifies that all required sample files exist and are not corrupted. """
@@ -73,5 +56,5 @@ class BasePipeline:
 			message = "Missing file for {}: {}".format(label, path)
 			raise FileNotFoundError(message)
 
-	def runWorkflow(self, sample, options, callers):
+	def runWorkflow(self, sample, pipeline_options, pipeline_callers):
 		pass

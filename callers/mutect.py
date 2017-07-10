@@ -1,4 +1,4 @@
-import os
+
 from .basicworkflow import Workflow
 
 class MuTect(Workflow):
