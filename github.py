@@ -11,7 +11,3 @@ import pytools.systemtools as systemtools
 
 import varianttools.callertools as callertools
 import varianttools.vcftools as vcftools
-
-import gdc_api
-
-API = gdc_api.GDCAPI()

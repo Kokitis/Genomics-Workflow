@@ -35,8 +35,9 @@ class Settings:
 		return kwargs
 
 	def getPipelineFolder(self, step, patientId = None, caller_name = None):
-
-		if step == 'variants-somatic':
+		if step == 'callset':
+			subfolders = ["3_called_variants", patientId]
+		elif step == 'variants-somatic':
 			subfolders = ["3_called_variants", patientId, caller_name]
 		elif step == 'variants-copynumber':
 			subfolders = ["4_called_cnvs", patientId, caller_name]
@@ -53,10 +54,14 @@ class Settings:
 			subfolders = ('truthset')
 		elif step == 'somaticseq':
 			subfolders = ('somaticseq')
+		elif step == 'somaticseq-callset':
+			subfolders = ['somaticseq', 'callsets', patientId]
 		elif step == 'somaticseq-training':
 			subfolders = ('somaticseq', 'training')
 		elif step == 'somaticseq-prediction':
 			subfolders = ('somaticseq', 'prediction')
+		elif step == 'somaticseq-table':
+			subfolders = ('somaticseq', 'tables')
 		else:
 			message = "'{}' is not a valid step in the pipeline!".format(step)
 			raise ValueError(message)

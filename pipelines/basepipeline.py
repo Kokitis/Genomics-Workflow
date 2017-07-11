@@ -1,10 +1,13 @@
-from github import filetools, API
+from github import filetools
 import os
+import gdc_api
+API = gdc_api.GDCAPI()
 
 class BasePipeline:
 
 	def __init__(self, sample, pipeline_options, callers):
-		print("Using callers: ", ",".join(callers))
+		if True:
+			print("Callers to use: ", callers)
 		
 		self._verifyPipelineFiles(pipeline_options)
 		self._verifySampleFiles(sample, pipeline_options)

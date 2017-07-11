@@ -32,7 +32,7 @@ class SomaticSeq(Workflow):
 		super().__init__(sample, options)
 
 	def setCustomEnvironment(self, sample, options):
-		self.somaticseq_folder 		= options['Programs']['SomaticSeq']
+		self.somaticseq_folder 		= options['Programs']['somaticseq']
 		self.somaticseq_program 	= os.path.join(self.somaticseq_folder, "SomaticSeq.Wrapper.sh")
 		self.modify_vjsd_script 	= os.path.join(self.somaticseq_folder, "modify_VJSD.py")
 		self.ada_trainer_script 	= os.path.join(self.somaticseq_folder, "r_scripts", "ada_model_builder.R")
@@ -40,9 +40,9 @@ class SomaticSeq(Workflow):
 		self.tsv_to_vcf_script  	= os.path.join(self.somaticseq_folder, "SSeq_tsv2vcf.py")
 		self.merged_vcf2tsv_script  = os.path.join(self.somaticseq_folder, "SSeq_merged.vcf2tsv.py")
 
-		self.output_folder = options.getPipelineFolder('somaticseq-' + self.mode, sample['PatientID'])
-		self.original_callset_folder = options.getPipelineFolder('callset', sample['PatientID'], 'original')
-		self.split_callset_folder = options.getPipelineFolder('callset', sample['PatientID'], 'original-split')
+		self.output_folder 				= options.getPipelineFolder('somaticseq-' + self.mode, sample['PatientID'])
+		self.original_callset_folder 	= options.getPipelineFolder('callset', sample['PatientID'])
+		self.split_callset_folder 		= options.getPipelineFolder('somaticseq-callset', sample['PatientID'], 'original-split')
 
 	def runCallerWorkflow(self, sample):
 		print("Running Workflow...")
@@ -98,10 +98,11 @@ class SomaticSeq(Workflow):
 		split_callset_folder = self.split_callset_folder
 
 		original_callset = classifier(original_callset_folder)
-		
+		pprint(original_callset)
 		vcftools.splitCallset(original_callset, split_callset_folder)
 		
-		callset = classifier(split_callset_folder, type = 'snp')	
+		callset = classifier(split_callset_folder, type = 'snp')
+		pprint(callset)	
 
 		return callset
 

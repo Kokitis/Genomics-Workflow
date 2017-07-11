@@ -132,14 +132,14 @@ class Strelka(Workflow):
 		for source in self.full_output:
 			folder, basename = os.path.split(source)
 			if "all.somatic.indels" in basename:
-				basename = "all.somatic.indels"
+				basename = ".all.somatic.indels"
 			elif "all.somatic.snvs" in basename:
-				basename = "all.somatic.snps"
+				basename = ".all.somatic.snps"
 			elif "passed.somatic.indels" in basename:
-				basename = "passed.somatic.indels"
+				basename = ".passed.somatic.indels"
 			else:
-				basename = "passed.somatic.snps"
+				basename = ".passed.somatic.snps"
 
-			destination = self.abs_prefix + basename + ".strelka.vcf"
+			destination = self.abs_prefix + basename + ".vcf"
 
 			shutil.copyfile(source, destination)
