@@ -76,14 +76,17 @@ class SomaticSeq(Workflow):
 			self.output_folder
 		)
 
-		if self.mode == 'trainer':
+		if self.mode == 'table':
+			pass #The trained_snp_table is the final result.
+		elif self.mode == 'trainer':
 			self.classifier = self.buildTrainer(self.trained_snp_table)
 		elif self.mode == 'prediction':
 			self.classifier = None
 			prediction_table = self.runPredictor(self.trained_snp_table)
 			prediction_vcf = self._convertToVcf(sample, prediction_table)
-		elif self.mode == 'table':
-			pass
+		else:
+			message = "'{}' is not a supported mode for SomaticSeq! {'trainer', 'prediction', 'table'}".format(self.mode)
+			raise ValueError(message)
 
 		return self.trained_snp_table
 
@@ -292,8 +295,6 @@ class SomaticSeq(Workflow):
 			infile = input_filename
 		)
 		expected_output = input_filename + '.Classifier.RData'
-		print("expected_output: ", expected_output)
-		print(command)
 		if not os.path.exists(expected_output):
 			#systemtools.Terminal(command, use_system = True)
 			self.runCallerCommand("Training the Model", expected_output)

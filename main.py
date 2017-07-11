@@ -69,9 +69,11 @@ if __name__ == "__main__" or True:
 	default_config_filename = os.path.join(PIPELINE_DIRECTORY, "0_config_files", "pipeline_project_options.txt")
 	
 	default_sample_filename = os.path.join(PIPELINE_DIRECTORY, "rna_sample_list.tsv")
+
 	pipeline_dna_callers = []
 	pipeline_rna_callers = ['haplotypecaller']
 	pipeline_copynumber_callers = []
+	somaticseq_callers = ['table'] # Different from the others. should be ['mode', 'truthset path', 'classifier path']
 	
 
 	pipeline = GenomicsPipeline(
@@ -80,6 +82,7 @@ if __name__ == "__main__" or True:
 		dna_callers = pipeline_dna_callers,
 		rna_callers = pipeline_rna_callers,
 		copynumber_callers = pipeline_copynumber_callers,
+		somaticseq_callers = somaticseq_callers,
 		debug = True
 	)
 # /home/upmc/Documents/TCGA-ESCA/RNA-seq/579bce59-438b-4ee2-b199-a91de73bca0e/b33ec9ae-7692-465d-ab40-b9a140df9c2e_gdc_realn_rehead.bam
