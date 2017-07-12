@@ -48,7 +48,7 @@ class SomaticSeq(Workflow):
 		print("Running Workflow...")
 		patientId = sample['PatientID']
 		callset = self._getRawCallset()
-		pprint(callset)
+		#pprint(callset)
 		#process_output_folder = getPipelineFolder('somaticseq-' + self.mode, patientId)
 		
 		processed_callset = self._processVJSDFiles(
@@ -63,13 +63,13 @@ class SomaticSeq(Workflow):
 			patientId
 		)
 		
-		filtered_raw_variant_file= self._reduceVariantTargets(
+		filtered_raw_variant_file= self._filterVariantTargets(
 			merged_raw_variant_file, 
 			self.output_folder,
 			patientId
 		)
 		
-		self.trained_snp_table = self._convertToTable(
+		self.trained_snp_table = self._generateCovariateTable(
 			sample, 
 			callset, 
 			filtered_raw_variant_file, 
@@ -98,11 +98,11 @@ class SomaticSeq(Workflow):
 		split_callset_folder = self.split_callset_folder
 
 		original_callset = classifier(original_callset_folder)
-		pprint(original_callset)
+		#pprint(original_callset)
 		vcftools.splitCallset(original_callset, split_callset_folder)
 		
 		callset = classifier(split_callset_folder, type = 'snp')
-		pprint(callset)	
+		#pprint(callset)	
 
 		return callset
 
@@ -185,12 +185,10 @@ class SomaticSeq(Workflow):
 			output 		= output_filename
 		)
 
-		if not os.path.exists(output_filename):
-			#systemtools.Terminal(command, use_system = True)
-			self.runCallerCommand(command, 'CombineVariants', output_filename)
+		self.runCallerCommand(command, 'CombineVariants', output_filename)
 		return output_filename
 	
-	def _reduceVariantTargets(self, input_filename, output_folder, patientId):
+	def _filterVariantTargets(self, input_filename, output_folder, patientId):
 		print("Excluding non-exome targets...")
 		output_filename = os.path.join(
 			output_folder,
@@ -202,20 +200,31 @@ class SomaticSeq(Workflow):
 			targets = self.targets,
 			output = output_filename
 		)
+		command = """intersectBed -header -a {infile} -b {targets}""".format(
+			infile = input_filename,
+			targets = self.targets,
+			output = output_filename
+		)
 
 		#systemtools.Terminal(command, use_system = True)
-		self.runCallerCommand(command, "Filtering Targets", output_filename)
+		self.runCallerCommand(
+			command = command, 
+			label = "Filtering Targets", 
+			expected_output = output_filename, 
+			output_filename = output_filename,
+			verbose = ['command', 'status']
+		)
 		#print("\tResult: {}\t{}".format(os.path.exists(output_filename), output_filename))
 		return output_filename
 	
-	def _convertToTable(self, sample, callset, merged_callset, output_folder):
-		print("Converting to a TSV file...")
+	def _generateCovariateTable(self, sample, callset, merged_callset, output_folder):
+		print("Generating the covariate table...")
 		#start_time = time.time()
 		output_filename = os.path.join(
 			output_folder,
 			"{}.{}.modified.merged.excluded.snp.tsv".format(sample['PatientID'], self.mode)
 		)
-		print("Merged_callset: {}\t{}".format(os.path.exists(merged_callset), merged_callset))
+		#print("Merged_callset: {}\t{}".format(os.path.exists(merged_callset), merged_callset))
 		command = """python3 {script} \
 			--p-scale phred \
 			--genome-reference {reference} \
@@ -227,7 +236,7 @@ class SomaticSeq(Workflow):
 			--muse-vcf {muse} \
 			--mutect-vcf {mutect2} \
 			--somaticsniper-vcf {somaticsniper} \
-			--strelka-strelka-vcf {strelka} \
+			--strelka-vcf {strelka} \
 			--varscan-vcf {varscan} \
 			--output-tsv-file {output}""".format(
 				script 			= self.merged_vcf2tsv_script,
@@ -246,16 +255,14 @@ class SomaticSeq(Workflow):
 				output 			= output_filename
 			)
 
+		#print(command)
 		if self.mode == 'trainer':
 			command += " --ground-truth-vcf " + self.truthset
 
 		#if not os.path.exists(output_filename):
-		if not os.path.exists(output_filename):
-			#systemtools.Terminal(command, use_system = True)
-			self.runCallerCommand(command, "Generating Table", output_filename)
-		else:
-			print("The Somaticseq table already exists.")
-		print("\tResult: {}\t{}".format(os.path.exists(output_filename), output_filename))
+		#print(command)
+		self.runCallerCommand(command, "Generating Table", output_filename)
+		#os.system(command)
 		#stop_time = time.time()
 
 		#duration = timetools.Duration(seconds = stop_time - start_time)
@@ -282,11 +289,9 @@ class SomaticSeq(Workflow):
 				tumorid = sample['SampleID'],
 				tools = "MuSE CGA SomaticSniper Strelka VarScan2"
 			)
-		print(command)
-		if not os.path.exists(output_filename):
-			#systemtools.Terminal(command, use_system = True)
-			self.runCallerCommand(command, "Generating VCF", output_filename)
-		return output_filename
+
+		self.runCallerCommand(command, "Generating VCF", output_filename)
+
 		
 
 	def buildTrainer(self, input_filename):

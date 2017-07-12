@@ -111,8 +111,8 @@ class Workflow:
 			label = label,
 			expected_output = expected_output,
 			command_filename = self.console_file,
-			output_filename = output_filename,
-			verbose = self.verbose_level,
+			#output_filename = output_filename,
+			**kwargs
 		)
 
 		#self._verifySessionStatus(caller_session)
