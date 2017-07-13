@@ -34,13 +34,16 @@ class Varscan(Workflow):
 			pileup_status = self.generateSinglePileup(sample)
 			pileup_file = pileup_status['outputFiles']
 			variant_discovery_status = self.runSingleVariantDiscovery(pileup_file)
+			processing_status = self.postProcessing()
 		else:
 			pileup_status = None
 			pileup_file = None
 			self._overwriteExistingFiles()
 			variant_discovery_status = self._downloadGdcFile(sample, self.somatic_hc)
+			self.full_output = [self.somatic_hc]
+			processing_status = None
 		#self.runDoubleVariantDiscovery(sample)
-		processing_status = self.postProcessing()
+		
 
 		workflow_status = [
 			pileup_status,

@@ -231,6 +231,7 @@ class Workflow:
 			raise FileNotFoundError("{}: The expected output files are not present!".format(self.caller_name))
 
 	def verifyOutputFiles(self, expected_output):
+		if isinstance(expected_output, str): expected_output = [expected_output]
 
 		output_status = [(os.path.exists(fn), fn) for fn in expected_output]
 		if any(not i[0] for i in output_status):
@@ -247,20 +248,22 @@ class Workflow:
 		caller_name = self.caller_name.lower()
 		if caller_name.endswith('2'): caller_name = caller_name[:-1]
 
-		gdc_file_info = gdc_api.extract(case_info, 'raw', 'caller', caller_name)
+		gdc_file_info = gdc_api.methods.extract.extractFile(case_info, 'raw', 'caller', caller_name)
 
 		file_id = gdc_file_info['fileId']
 		file_name = gdc_file_info['fileName'] #will be .gz
 
 		# Download The Files
 		download_output = os.path.join(self.output_folder, file_id, file_name)
-		download_command = gdc_api.generateCommand(file_id)
-		download_status = self.runCallerCommand(download_command, 'Downloading GDC File', download_output)
+		download_command = gdc_api.generateCommand(file_id, folder = self.output_folder)
+		download_status = self.runCallerCommand(
+			download_command, 'Downloading GDC File', download_output, verbose = [])
 
 		# Extract the Files
-		extract_command = "gunzip {fn}".format(fn = expected_output)
+		extract_command = "gunzip {fn}".format(fn = download_output)
 		extract_output = os.path.splitext(download_output)[0]
-		extract_status = self.runCallerCommand(extract_command, "Extracting GDC Files", extract_output)
+		extract_status = self.runCallerCommand(
+			extract_command, "Extracting GDC Files", extract_output)
 
 		# Rename Files
 
