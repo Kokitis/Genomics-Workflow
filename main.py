@@ -27,8 +27,9 @@ if __name__ == "__main__" or True:
 	else:
 		default_sample_filename = ""
 		default_config_filename = ""
-		pipeline_dna_callers = ""
-		pipeline_copynumber_callers = ""
+		pipeline_dna_callers = []
+		pipeline_rna_callers = []
+		pipeline_copynumber_callers = []
 		somaticseq_callers = ""
 
 

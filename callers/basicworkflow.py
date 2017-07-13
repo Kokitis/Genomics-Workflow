@@ -6,6 +6,7 @@ import isodate
 
 from github import systemtools
 from github import filetools
+from github import gdc_api
 
 import datetime
 
@@ -96,7 +97,7 @@ class Workflow:
 				output_filename:
 		"""
 		#expected_output = kwargs.get('expected_output')
-		output_filename = kwargs.get('output_filename')
+		#output_filename = kwargs.get('output_filename')
 		#label = kwargs.get('label', self.caller_name + ".runCallerCommand")
 
 		if expected_output is None:
@@ -254,12 +255,12 @@ class Workflow:
 		# Download The Files
 		download_output = os.path.join(self.output_folder, file_id, file_name)
 		download_command = gdc_api.generateCommand(file_id)
-		status = self.runCallerCommand(download_command, 'Downloading GDC File', download_output)
+		download_status = self.runCallerCommand(download_command, 'Downloading GDC File', download_output)
 
 		# Extract the Files
 		extract_command = "gunzip {fn}".format(fn = expected_output)
 		extract_output = os.path.splitext(download_output)[0]
-		status = self.runCallerCommand(extract_command, "Extracting GDC Files", extract_output)
+		extract_status = self.runCallerCommand(extract_command, "Extracting GDC Files", extract_output)
 
 		# Rename Files
 
@@ -267,7 +268,7 @@ class Workflow:
 
 		self.verifyOutputFiles(output_filename)
 
-		return status
+		return extract_status
 
 	def _overwriteExistingFiles(self):
 		""" Deletes any existing files """

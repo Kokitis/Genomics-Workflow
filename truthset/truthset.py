@@ -1,6 +1,5 @@
 import vcf
 import shutil
-from pprint import pprint
 import os
 
 from settings import Settings

@@ -1,6 +1,5 @@
 import os
 from .basicworkflow import Workflow
-import gdc_api
 
 
 class SomaticSniper(Workflow):

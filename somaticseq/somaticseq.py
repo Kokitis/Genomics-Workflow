@@ -2,7 +2,6 @@
 from callers import Workflow
 import os
 import shutil
-from pprint import pprint
 
 from github import callertools
 from github import vcftools
@@ -85,7 +84,7 @@ class SomaticSeq(Workflow):
 			prediction_table = self.runPredictor(self.trained_snp_table)
 			prediction_vcf = self._convertToVcf(sample, prediction_table)
 		else:
-			message = "'{}' is not a supported mode for SomaticSeq! {'trainer', 'prediction', 'table'}".format(self.mode)
+			message = "'{}' is not a supported mode for SomaticSeq! ('trainer', 'prediction', 'table')".format(self.mode)
 			raise ValueError(message)
 
 		return self.trained_snp_table
@@ -285,7 +284,8 @@ class SomaticSeq(Workflow):
 				tools = "MuSE CGA SomaticSniper Strelka VarScan2"
 			)
 
-		self.runCallerCommand(command, "Generating VCF", output_filename)
+		status = self.runCallerCommand(command, "Generating VCF", output_filename)
+		return status
 
 		
 
