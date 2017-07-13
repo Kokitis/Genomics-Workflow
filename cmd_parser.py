@@ -24,6 +24,13 @@ def getCmdParser():
 	)
 
 	parser.add_argument(
+		"-t", "--truthset",
+		dest = 'generate_truthset',
+		action = 'store_true',
+		help = "Flag to generate a truthset rather than running the variant calling pipeline."
+	)
+
+	parser.add_argument(
 		"-a", "--all-callers",
 		dest = 'use_all_callers',
 		action = 'store_true',

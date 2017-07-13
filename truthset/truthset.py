@@ -1,18 +1,28 @@
 import vcf
-import shutil
 import os
+from pprint import pprint
 
+from github import callertools
+from github import filetools
+from github import vcftools
 from settings import Settings
 
+
 class TruthsetPipeline:
-	def __init__(self, samples, options, **kwargs):
+	def __init__(self, samples, options_filename, **kwargs):
 		truthset_type = kwargs['truthset_type']
+		options = Settings(options_filename)
+		
+		truthsets = list()
 		for sample in samples:
-			self.runWorkflow(
+			result = self.runWorkflow(
 				sample = sample,
 				workflow_options = options,
 				truthset_type = truthset_type
-		)
+			)
+			truthsets.append(result)
+
+		pprint(truthsets)
 
 	def runWorkflow(self, sample, workflow_options, truthset_type):
 
@@ -28,6 +38,14 @@ class TruthsetPipeline:
 
 class Truthset:
 	def __init__(self, sample, truthset_options, callset_type, truthset_type, **kwargs):
+		"""
+			Parameters
+			----------
+				sample: dict
+				truthset_options: Settings
+				callset_type: {'snp', 'indel'}
+				truthset_type = {'rna', 'intersection'}
+		"""
 		########################### Define Common Attributes ##################
 		self.debug = True
 		if self.debug:
@@ -47,16 +65,19 @@ class Truthset:
 		self.picard_program = truthset_options['Programs']['Picard']
 		self.reference      = truthset_options['Reference Files']['reference genome']
 		self.output_folder = truthset_options.getPipelineFolder('truthset')
+		self.temp_folder = os.path.join(self.output_folder, 'callsets', sample['patientId'])
+		filetools.checkDir(self.temp_folder)
 
 		######################## Generate the Truthset ########################
 		self.filename = self.runWorkflow(
 			sample = sample,
 			callset_type = callset_type,
 			truthset_type = truthset_type,
+			truthset_options = truthset_options,
 			**kwargs
 		)
 	
-	def runWorkflow(self, sample, callset_type, truthset_type, **kwargs):
+	def runWorkflow(self, sample, truthset_options, callset_type, truthset_type, **kwargs):
 		"""
 			Parameters
 			----------
@@ -74,18 +95,24 @@ class Truthset:
 		)
 
 		############################## Prepare the Truthset ###########################
-		raw_callset = getSampleCallset(patientId, 'original-fixed-split', callset_type)
 
-		if len(raw_callset) == 1:
-			shutil.copy2(raw_callset.pop(), raw_callset_filename)
-		elif len(raw_callset) > 1:
-			GATK_MERGE_CALLSET(
-				callset = raw_callset,
-				filename = raw_callset_filename
-			)
+		#raw_callset = getSampleCallset(patientId, 'original-fixed-split', callset_type)
+		raw_callset_folder = truthset_options.getPipelineFolder('callset', patientId)
+		raw_callset = callertools.classify(raw_callset_folder)
+
+		# Combine the callset into a single file.
+		if truthset_type == 'rna':
+			#shutil.copy2(raw_callset['haplotypecaller-rna'], raw_callset_filename)
+			initial_filename = raw_callset['haplotypecaller-rna']
+			result = vcftools.splitVcf(initial_filename, os.path.dirname(raw_callset_filename))
+			raw_callset_filename = result[callset_type]
 		else:
-			message = "The callset is empty!"
-			raise ValueError(message)
+			callertools.merge(
+				callset = raw_callset,
+				filename = raw_callset_filename,
+				program = truthset_options['Programs']['GATK'],
+				reference = truthset_options['Reference Files']['reference genome']
+			)
 
 		# Generate two truthsets, one for snps and one for indels.
 		final_truthset_filename = self._generateTruthset(
@@ -314,5 +341,6 @@ if __name__ == "__main__":
 	TruthsetPipeline(
 		samples = truthset_samples,
 		options = truthset_options,
-		truthset_type = pipeline_type
+		truthset_type = pipeline_type,
+		options_filename = default_config_filename
 	)
