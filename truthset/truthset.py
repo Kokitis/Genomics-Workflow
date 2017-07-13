@@ -53,6 +53,9 @@ class Truthset:
 			print("\ttruthset_type = {}".format(truthset_type))
 
 		# Parameters to use when generating the truthsets.
+		if isinstance(sample, str): patientId = sample 
+		else:
+			patientId = sample['PatientID']
 		self.truthset_type = truthset_type
 
 		self.indel_intersection = kwargs.get('indel_intersection', 2)
@@ -62,28 +65,27 @@ class Truthset:
 		self.max_normal_vaf = 0.03
 
 		self.gatk_program   = truthset_options['Programs']['GATK']
-		self.picard_program = truthset_options['Programs']['Picard']
+		self.picard_program = truthset_options['Programs']['picard']
 		self.reference      = truthset_options['Reference Files']['reference genome']
 		self.output_folder = truthset_options.getPipelineFolder('truthset')
-		self.temp_folder = os.path.join(self.output_folder, 'callsets', sample['patientId'])
-		filetools.checkDir(self.temp_folder)
+		self.temp_folder = os.path.join(self.output_folder, 'callsets', patientId)
+		filetools.checkDir(self.temp_folder, True)
 
 		######################## Generate the Truthset ########################
 		self.filename = self.runWorkflow(
-			sample = sample,
+			patientId = patientId,
 			callset_type = callset_type,
 			truthset_type = truthset_type,
 			truthset_options = truthset_options,
 			**kwargs
 		)
 	
-	def runWorkflow(self, sample, truthset_options, callset_type, truthset_type, **kwargs):
+	def runWorkflow(self, patientId, truthset_options, callset_type, truthset_type, **kwargs):
 		"""
 			Parameters
 			----------
 				callset_type: {'indel', 'snp'}
 		"""
-		patientId = sample['PatientID']
 		############################## Define Filenames ##############################
 		raw_callset_filename = os.path.join(
 			self.output_folder,
@@ -103,6 +105,10 @@ class Truthset:
 		# Combine the callset into a single file.
 		if truthset_type == 'rna':
 			#shutil.copy2(raw_callset['haplotypecaller-rna'], raw_callset_filename)
+			
+			if 'haplotypecaller-rna' not in raw_callset:
+				pprint(raw_callset)
+				print("Raw Callset Folder: ", raw_callset_folder)
 			initial_filename = raw_callset['haplotypecaller-rna']
 			result = vcftools.splitVcf(initial_filename, os.path.dirname(raw_callset_filename))
 			raw_callset_filename = result[callset_type]
@@ -118,7 +124,7 @@ class Truthset:
 		final_truthset_filename = self._generateTruthset(
 			input_vcf = raw_callset_filename,
 			output_vcf = final_truthset_filename,
-			training_type = truthset_type,
+			truthset_type = truthset_type,
 			callset_type = callset_type,
 			**kwargs
 		)
@@ -205,24 +211,13 @@ class Truthset:
 		
 		validation_status = _is_intersection or _is_in_n_sets
 
-		row = {
-			'chrom': record.CHROM,
-			'position': record.POS,
-			'validation method': 'Intersection',
-			'validation status': validation_status
-		}
-		return row
+		return validation_status
 
 	@staticmethod
 	def _fromRna(record):
-		is_valid = not record.FILTER # True if FILTER is empty or is None
-		row = {
-			'chrom': record.CHROM,
-			'position': record.POS,
-			'validation method': 'RNA-seq',
-			'validation status': is_valid
-		}
-		return row
+		is_valid = not record.FILTER  or (len(record.FILTER) == 1 and 'PASS' in record.FILTER)# True if FILTER is empty or is None
+
+		return is_valid
 
 	def _fromVaf(self, record):
 		sample_vaf = self._getSampleVAF(record)
@@ -246,13 +241,7 @@ class Truthset:
 
 		validation_status = int(validation_status == 1)
 
-		row = {
-			'chrom': record.CHROM,
-			'position': record.POS,
-			'validation method': 'VAF',
-			'validation status': validation_status
-		}
-		return row
+		return validation_status
 
 	@staticmethod
 	def _getSampleVAF(record):

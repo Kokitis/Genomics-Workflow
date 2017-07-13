@@ -51,17 +51,17 @@ class Settings:
 			subfolders = ['7_rna_variants', patientId]
 
 		elif step == 'truthset':
-			subfolders = ('truthset')
+			subfolders = ['truthset']
 		elif step == 'somaticseq':
-			subfolders = ('somaticseq')
+			subfolders = ['somaticseq']
 		elif step == 'somaticseq-callset':
 			subfolders = ['somaticseq', 'callsets', patientId]
 		elif step == 'somaticseq-training':
-			subfolders = ('somaticseq', 'training')
+			subfolders = ['somaticseq', 'training']
 		elif step == 'somaticseq-prediction':
-			subfolders = ('somaticseq', 'prediction')
+			subfolders = ['somaticseq', 'prediction']
 		elif step == 'somaticseq-table':
-			subfolders = ('somaticseq', 'tables')
+			subfolders = ['somaticseq', 'tables']
 		else:
 			message = "'{}' is not a valid step in the pipeline!".format(step)
 			raise ValueError(message)
