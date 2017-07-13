@@ -238,3 +238,39 @@ class Workflow:
 			for s, f in output_status:
 				print("\t{}\t{}".format(s, f))
 			raise FileNotFoundError()
+
+	def _downloadGdcFile(self, sample, output_filename):
+		case_id = sample['CaseID']
+		case_info = gdc_api.request(case_id, 'cases')
+
+		caller_name = self.caller_name.lower()
+		if caller_name.endswith('2'): caller_name = caller_name[:-1]
+
+		gdc_file_info = gdc_api.extract(case_info, 'raw', 'caller', caller_name)
+
+		file_id = gdc_file_info['fileId']
+		file_name = gdc_file_info['fileName'] #will be .gz
+
+		# Download The Files
+		download_output = os.path.join(self.output_folder, file_id, file_name)
+		download_command = gdc_api.generateCommand(file_id)
+		status = self.runCallerCommand(download_command, 'Downloading GDC File', download_output)
+
+		# Extract the Files
+		extract_command = "gunzip {fn}".format(fn = expected_output)
+		extract_output = os.path.splitext(download_output)[0]
+		status = self.runCallerCommand(extract_command, "Extracting GDC Files", extract_output)
+
+		# Rename Files
+
+		os.rename(extract_output, output_filename)
+
+		self.verifyOutputFiles(output_filename)
+
+		return status
+
+	def _overwriteExistingFiles(self):
+		""" Deletes any existing files """
+
+		shutil.rmtree(self.output_folder)
+		filetools.checkDir(self.output_folder)

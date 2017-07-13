@@ -36,4 +36,5 @@ class SomaticSeqPipeline(BasePipeline):
 			truthset = somaticseq_truthset,
 			classifier = somaticseq_classifier
 		)
+		return result
 

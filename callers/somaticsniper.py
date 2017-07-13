@@ -1,7 +1,56 @@
 import os
 from .basicworkflow import Workflow
+import gdc_api
+
 
 class SomaticSniper(Workflow):
+
+	def calculateConfidence(self, vcf_file):
+		command = """perl {script} \
+			--snp-file {snpfile} \
+			--min-mapping-quality {mmq} \
+			--min-somatic-score {ss} \
+			--lq-output {lq} \
+			--out-file {hq}""".format(
+				script 	= self.hc_script,
+				mmq 	= self.min_mapping_quality,
+				ss 		= self.min_somatic_quality,
+				snpfile	= vcf_file,
+				hq 		= self.hq_variants,
+				lq 		= self.lq_variants
+		)
+
+		label = "SomaticSniper: Filter lq Variants"
+		output_result = self.runCallerCommand(command, label, [self.hq_variants, self.lq_variants])
+		return output_result
+
+
+
+	def generatePileup(self, bam_file, bam_name):
+
+		raw_pileup_file = os.path.join(self.temp_folder, "{0}.somaticsniper.pileup".format(bam_name))
+		filtered_output_file = raw_pileup_file + '.pileup'
+
+		#samtools_command = "{samtools} pileup -cvi -f {reference} {bam} > {pileup}".format(
+		samtools_command = "{samtools} pileup -cvi -f {reference} {bam}".format(
+			samtools = self.samtools_program,
+			reference = self.reference,
+			bam = bam_file,
+			pileup = raw_pileup_file)
+
+		#filter_command = """samtools.pl varFilter -Q {basequality} {inputpileup} > {outputpileup}""".format(
+		filter_command = """samtools.pl varFilter -Q {basequality} {inputpileup}""".format(
+			basequality = self.min_base_quality,
+			inputpileup = raw_pileup_file,
+			outputpileup = filtered_output_file)
+		# samtools.pl varFilter raw.pileup | awk '$6>=20' > final.pileup
+		label = "SomaticSniper: Generate Pileup File"
+		self.runCallerCommand(samtools_command, label, raw_pileup_file, output_filename = raw_pileup_file)
+
+		label = "SomaticSniper: Filter Pileup File"
+		self.runCallerCommand(filter_command, label, filtered_output_file, output_filename = filtered_output_file)
+
+		return filtered_output_file
 
 	def setCustomEnvironment(self, sample, options):
 		# Define the relevant filenames
@@ -20,101 +69,10 @@ class SomaticSniper(Workflow):
 
 		self.raw_variants 	= self.abs_prefix + '.vcf'
 		self.hq_variants 	= self.abs_prefix + '.hq.vcf'
-		self.lq_variants 	= self.abs_prefix + '.lq.vcf'		
-
-	def runCallerWorkflow(self, sample):
-		# Will print "Couldn't find single-end mapping quality. Check to see if the SM tag is in BAM."
-		# This doesn't invalidate results, but try not to use single-end mapping quality in output
-
-		self.variant_discovery_status = self.runVariantDiscovery(sample)
-		# Generate pileup files
-		normal_pileup_file = self.generatePileup(sample['NormalBAM'], 	'normal') #returns pileup filename
-		tumor_pileup_file  = self.generatePileup(sample['TumorBAM'], 	'tumor')
-
-		# Filter LOH
-		_intermediate_loh_filtered_output = self.abs_prefix + ".SNPfilter.intermediate"
-		loh_filtered_output = self.abs_prefix + ".SNPfilter.final"
-		_intermediate_file  = self.removeLOH(self.raw_variants, normal_pileup_file, _intermediate_loh_filtered_output)
-		loh_filtered_output = self.removeLOH(_intermediate_loh_filtered_output, tumor_pileup_file, loh_filtered_output)
-		# loh_filtered_output = _intermediate_file
-		
-		readcount_status 			= self.readcounts(loh_filtered_output, sample['TumorBAM'])
-		readcounts 					= readcount_status['outputFiles']
-		false_positive_status 		= self.removeFalsePositives(loh_filtered_output, readcounts)
-		false_positive_output 		= false_positive_status['outputFiles']
-		high_confidence_status	 	= self.calculateConfidence(false_positive_output)
-
-		self.full_output = [self.raw_variants, self.hq_variants, self.lq_variants]
-		self.final_output = self.hq_variants
-	
-	def runVariantDiscovery(self, sample):
-		# -------------------------------- Variant Discovery Command -----------------------------
-		somaticsniper_command = """{program} \
-			-q 1 \
-			-Q 15 \
-			-s 0.01 \
-			-T 0.85 \
-			-N 2 \
-			-r 0.001 \
-			-G \
-			-L \
-			-n NORMAL \
-			-t TUMOR \
-			-F vcf \
-			-f {reference} {tumor} {normal} {outputfile}""".format(
-				program     = self.program,
-				reference   = self.reference,
-				tumor       = sample['TumorBAM'],
-				normal      = sample['NormalBAM'],
-				outputfile  = self.raw_variants
-			)
-		label = "SomaticSniper Variant Discovery"
-		output_result = self.runCallerCommand(somaticsniper_command, label, self.raw_variants)
-		return output_result
-
-	def generatePileup(self, bam_file, bam_name):
-
-		raw_pileup_file = os.path.join(self.temp_folder, "{0}.somaticsniper.pileup".format(bam_name))
-		filtered_output_file = raw_pileup_file + '.pileup'
-		
-		#samtools_command = "{samtools} pileup -cvi -f {reference} {bam} > {pileup}".format(
-		samtools_command = "{samtools} pileup -cvi -f {reference} {bam}".format(
-			samtools = self.samtools_program,
-			reference = self.reference,
-			bam = bam_file,
-			pileup = raw_pileup_file)
-
-		#filter_command = """samtools.pl varFilter -Q {basequality} {inputpileup} > {outputpileup}""".format(
-		filter_command = """samtools.pl varFilter -Q {basequality} {inputpileup}""".format(
-			basequality = self.min_base_quality,
-			inputpileup = raw_pileup_file,
-			outputpileup = filtered_output_file)
-		# samtools.pl varFilter raw.pileup | awk '$6>=20' > final.pileup
-		label = "SomaticSniper: Generate Pileup File" 
-		self.runCallerCommand(samtools_command, label, raw_pileup_file, output_filename = raw_pileup_file)
-
-		label = "SomaticSniper: Filter Pileup File"
-		self.runCallerCommand(filter_command, label, filtered_output_file, output_filename = filtered_output_file)
-
-		return filtered_output_file
-
-	def removeLOH(self, vcf_file, pileup_file, output_file):
-		# -------------------------- Filter and remove LOH --------------------------------
-		command = """perl {snpfilter} \
-			--snp-file {vcf} \
-			--indel-file {pileup} \
-			--out-file {output}""".format(
-				snpfilter = self.snpfilter_script,
-				vcf 	= vcf_file,
-				pileup 	= pileup_file,
-				output 	= output_file
-			)
-		label = "SomaticSniper: removeLOH"
-		self.runCallerCommand(command, label, output_file)
-		return output_file
+		self.lq_variants 	= self.abs_prefix + '.lq.vcf'
 
 	def readcounts(self, loh_file, tumor_bam):
-		""" Expected Output: 
+		""" Expected Output:
 		"""
 		prepare_readcount_output 	= loh_file + '.pos'
 		readcount_output 			= loh_file + '.readcounts.rc'
@@ -150,32 +108,6 @@ class SomaticSniper(Workflow):
 
 		return readcount_result
 
-	def _captureReadcountOutput(self, output_file):
-		""" Since the terminal output is saved to the console file now,
-			the readcount output must be scraped from that file.
-		"""
-		if os.path.exists(output_file): return None
-		readcounts = list()
-		console_file = self._searchForConsoleFile()
-		with open(console_file, 'r') as file1:
-			for line in file1.read().splitlines():
-				if line[:3] == 'chr': readcounts.append(line)
-		with open(output_file, 'w') as file2:
-			for line in readcounts:
-				file2.write(line + '\n')
-
-	def _searchForConsoleFile(self):
-		if not os.path.exists(self.console_file):
-			candidates = sorted(os.listdir(self.output_folder))
-			if len(candidates) == 0:
-				candidate = self.console_file
-			else:
-				candidate = candidates[-1]
-		else:
-			candidate = self.console_file
-
-		return candidate
-
 	def removeFalsePositives(self, loh_file, readcounts):
 		false_positive_output = loh_file + '.fp_pass'
 		fp_command = """perl {script} \
@@ -190,21 +122,76 @@ class SomaticSniper(Workflow):
 		output_status = self.runCallerCommand(fp_command, label, false_positive_output)
 		return output_status
 
-	def calculateConfidence(self, vcf_file):
-		command = """perl {script} \
-			--snp-file {snpfile} \
-			--min-mapping-quality {mmq} \
-			--min-somatic-score {ss} \
-			--lq-output {lq} \
-			--out-file {hq}""".format(
-				script 	= self.hc_script,
-				mmq 	= self.min_mapping_quality,
-				ss 		= self.min_somatic_quality,
-				snpfile	= vcf_file,
-				hq 		= self.hq_variants,
-				lq 		= self.lq_variants
-		)
+	def removeLOH(self, vcf_file, pileup_file, output_file):
+		# -------------------------- Filter and remove LOH --------------------------------
+		command = """perl {snpfilter} \
+			--snp-file {vcf} \
+			--indel-file {pileup} \
+			--out-file {output}""".format(
+				snpfilter = self.snpfilter_script,
+				vcf 	= vcf_file,
+				pileup 	= pileup_file,
+				output 	= output_file
+			)
+		label = "SomaticSniper: removeLOH"
+		self.runCallerCommand(command, label, output_file)
+		return output_file
 
-		label = "SomaticSniper: Filter lq Variants"
-		output_result = self.runCallerCommand(command, label, [self.hq_variants, self.lq_variants])
+	def runCallerWorkflow(self, sample):
+		# Will print "Couldn't find single-end mapping quality. Check to see if the SM tag is in BAM."
+		# This doesn't invalidate results, but try not to use single-end mapping quality in output
+		if False:
+			self.variant_discovery_status = self.runVariantDiscovery(sample)
+		else:
+			self._overwriteExistingFiles()
+			self.variant_discovery_status = self._downloadGdcFile(sample, self.raw_variants)
+		# Generate pileup files
+		normal_pileup_file = self.generatePileup(sample['NormalBAM'], 	'normal') #returns pileup filename
+		tumor_pileup_file  = self.generatePileup(sample['TumorBAM'], 	'tumor')
+
+		# Filter LOH
+		_intermediate_loh_filtered_output = self.abs_prefix + ".SNPfilter.intermediate"
+		loh_filtered_output = self.abs_prefix + ".SNPfilter.final"
+		_intermediate_file  = self.removeLOH(self.raw_variants, normal_pileup_file, _intermediate_loh_filtered_output)
+		loh_filtered_output = self.removeLOH(_intermediate_loh_filtered_output, tumor_pileup_file, loh_filtered_output)
+		# loh_filtered_output = _intermediate_file
+
+		readcount_status 			= self.readcounts(loh_filtered_output, sample['TumorBAM'])
+		readcounts 					= readcount_status['outputFiles']
+		false_positive_status 		= self.removeFalsePositives(loh_filtered_output, readcounts)
+		false_positive_output 		= false_positive_status['outputFiles']
+		high_confidence_status	 	= self.calculateConfidence(false_positive_output)
+
+		self.full_output = [self.raw_variants, self.hq_variants, self.lq_variants]
+		self.final_output = self.hq_variants
+
+	def runVariantDiscovery(self, sample):
+		"""	Detects raw variants with somaticniper.
+			Parameters
+			----------
+				sample: dict<>
+					dictionary mapping sample-specific files.
+		"""
+		# -------------------------------- Variant Discovery Command -----------------------------
+		somaticsniper_command = """{program} \
+			-q 1 \
+			-Q 15 \
+			-s 0.01 \
+			-T 0.85 \
+			-N 2 \
+			-r 0.001 \
+			-G \
+			-L \
+			-n NORMAL \
+			-t TUMOR \
+			-F vcf \
+			-f {reference} {tumor} {normal} {outputfile}""".format(
+				program     = self.program,
+				reference   = self.reference,
+				tumor       = sample['TumorBAM'],
+				normal      = sample['NormalBAM'],
+				outputfile  = self.raw_variants
+			)
+		label = "SomaticSniper Variant Discovery"
+		output_result = self.runCallerCommand(somaticsniper_command, label, self.raw_variants)
 		return output_result

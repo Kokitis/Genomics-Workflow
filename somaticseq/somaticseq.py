@@ -195,11 +195,6 @@ class SomaticSeq(Workflow):
 			"{}.{}.modified.merged.excluded.vcf".format(patientId, self.mode)
 		)
 
-		command = """intersectBed -header -a {infile} -b {targets} > {output}""".format(
-			infile = input_filename,
-			targets = self.targets,
-			output = output_filename
-		)
 		command = """intersectBed -header -a {infile} -b {targets}""".format(
 			infile = input_filename,
 			targets = self.targets,
@@ -303,7 +298,7 @@ class SomaticSeq(Workflow):
 		expected_output = input_filename + '.Classifier.RData'
 		if not os.path.exists(expected_output):
 			#systemtools.Terminal(command, use_system = True)
-			self.runCallerCommand("Training the Model", expected_output)
+			self.runCallerCommand(command, "Training the Model", expected_output)
 		else:
 			print("The Somaticseq classifier already exists.")
 		return expected_output

@@ -23,15 +23,22 @@ class Varscan(Workflow):
 			self.germline,
 			self.germline_hc,
 			self.loh,
-			self.loh_hc]
+			self.loh_hc
+		]
 
 		self.final_output = self.somatic_hc
 	
 	def runCallerWorkflow(self, sample):
 
-		pileup_status = self.generateSinglePileup(sample)
-		pileup_file = pileup_status['outputFiles']
-		variant_discovery_status = self.runSingleVariantDiscovery(pileup_file)
+		if False:
+			pileup_status = self.generateSinglePileup(sample)
+			pileup_file = pileup_status['outputFiles']
+			variant_discovery_status = self.runSingleVariantDiscovery(pileup_file)
+		else:
+			pileup_status = None
+			pileup_file = None
+			self._overwriteExistingFiles()
+			variant_discovery_status = self._downloadGdcFile(sample, self.somatic_hc)
 		#self.runDoubleVariantDiscovery(sample)
 		processing_status = self.postProcessing()
 
