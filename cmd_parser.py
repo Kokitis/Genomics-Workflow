@@ -18,7 +18,7 @@ def getCmdParser():
 
 	parser.add_argument(
 		'-d', "--debug",
-		dest = 'debug',
+		#dest = 'debug',
 		action = 'store_true',
 		help='debug the pipeline using default settings' + show_default
 	)

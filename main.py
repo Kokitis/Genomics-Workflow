@@ -55,8 +55,10 @@ def runTruthsetPipeline(debug_pipeline = True):
 if __name__ == "__main__" or True:
 	
 	parser = cmd_parser.getCmdParser()
-	parser.parse_args()
+	parser = parser.parse_args()
+	pprint(dir(parser))
 	debug_pipeline = parser.debug
+
 
 	run_variant_discovery = not parser.generate_truthset
 
