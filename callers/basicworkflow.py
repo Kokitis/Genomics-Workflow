@@ -65,9 +65,9 @@ class Workflow:
 
 		if options['globals']['overwrite'] and os.path.exists(self.output_folder):
 			shutil.rmtree(self.output_folder)
-
-		if options['globals']['debug']:
-			print("Running ", self.caller_name)
+		print("\tRunning ", self.caller_name)
+		if False:
+			
 			print("\tprogram location: ", self.program)
 			print("\toutput folder: ", self.output_folder)
 			print("\ttemp folder: ", self.temp_folder)

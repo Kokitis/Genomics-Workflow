@@ -3,6 +3,7 @@ from callers import Workflow
 import os
 import shutil
 
+from github import filetools
 from github import callertools
 from github import vcftools
 
@@ -49,29 +50,43 @@ class SomaticSeq(Workflow):
 		#pprint(callset)
 		#process_output_folder = getPipelineFolder('somaticseq-' + self.mode, patientId)
 		
+		vjsd_output_folder = os.path.join(self.output_folder, "0_fixed_variants")
+		merged_output_folder = os.path.join(self.output_folder, "1_merged_variants")
+		filtered_output_folder= os.path.join(self.output_folder, "2_filtered_variants")
+		table_output_folder = os.path.join(self.output_folder, "3_tables")
+
+		filetools.checkDir(vjsd_output_folder)
+		filetools.checkDir(merged_output_folder)
+		filetools.checkDir(filtered_output_folder)
+		filetools.checkDir(table_output_folder)
+
 		processed_callset = self._processVJSDFiles(
 			callset, 
-			self.output_folder,
+			#self.output_folder,
+			vjsd_output_folder,
 			patientId
 		)
 		
 		merged_raw_variant_file = self._mergeVariantFiles(
 			processed_callset, 
-			self.output_folder,
+			#self.output_folder,
+			merged_output_folder,
 			patientId
 		)
 		
 		filtered_raw_variant_file= self._filterVariantTargets(
 			merged_raw_variant_file, 
-			self.output_folder,
+			#self.output_folder,
+			filtered_output_folder,
 			patientId
 		)
 		
 		self.trained_snp_table = self._generateCovariateTable(
 			sample, 
 			callset, 
-			filtered_raw_variant_file, 
-			self.output_folder
+			filtered_raw_variant_file,
+			#self.output_folder
+			table_output_folder
 		)
 
 		if self.mode == 'table':
@@ -117,7 +132,7 @@ class SomaticSeq(Workflow):
 		"""
 		processed_callset = dict()
 		for caller, input_file in callset.items():
-			print("\tProcessing {}...".format(caller))
+			#print("\tProcessing {}...".format(caller))
 			if caller == 'muse':
 				method = 'MuSE'
 			elif caller == 'somaticsniper':
@@ -156,7 +171,7 @@ class SomaticSeq(Workflow):
 			Note: The only records that are merged are those that are
 			unfiltered in at least one caller.
 		"""
-		print("\tMerging files...")
+		#print("\tMerging files...")
 		output_filename = os.path.join(
 			output_folder,
 			"{}.{}.modified.merged.vcf".format(patientId, self.mode)
@@ -187,7 +202,7 @@ class SomaticSeq(Workflow):
 		return output_filename
 	
 	def _filterVariantTargets(self, input_filename, output_folder, patientId):
-		print("\tExcluding non-exome targets...")
+		#print("\tExcluding non-exome targets...")
 		output_filename = os.path.join(
 			output_folder,
 			"{}.{}.modified.merged.excluded.vcf".format(patientId, self.mode)
@@ -210,7 +225,7 @@ class SomaticSeq(Workflow):
 		return output_filename
 	
 	def _generateCovariateTable(self, sample, callset, merged_callset, output_folder):
-		print("\tGenerating the covariate table...")
+		#print("\tGenerating the covariate table...")
 		#start_time = time.time()
 		output_filename = os.path.join(
 			output_folder,
@@ -288,7 +303,7 @@ class SomaticSeq(Workflow):
 		
 
 	def buildTrainer(self, input_filename):
-		print("\tBuilding model...")
+		#print("\tBuilding model...")
 		command = "{script} {infile}".format(
 			script = self.ada_trainer_script,
 			infile = input_filename
@@ -310,14 +325,14 @@ class SomaticSeq(Workflow):
 		output_filename = "{}.predicted_scores.tsv".format(basename)
 		output_filename = os.path.join(output_folder, output_filename)
 
-		print("\tPredicting Scores...")
+		#print("\tPredicting Scores...")
 		command = "{script} {classifier} {infile} {outfile}".format(
 			script = self.ada_prediction_script,
 			classifier = self.ss_classifier,
 			infile = input_filename,
 			outfile = output_filename
 		)
-		print(command)
+
 		#systemtools.Terminal(command, use_system = True)
 		self.runCallerCommand(command, "Calculating Predictions", output_filename)
 

@@ -8,8 +8,8 @@ import cmd_parser
 # ----------------------------------------------------------------------------------------------------
 # --------------------------------------------- Main -------------------------------------------------
 # ----------------------------------------------------------------------------------------------------
-def runVariantDiscoveryPipeline(debug_pipeline = True):
-	if debug_pipeline:
+def runVariantDiscoveryPipeline(cmd_options = None, debug_pipeline = True):
+	if debug_pipeline or cmd_options is None:
 		default_sample_filename = debug_values.default_sample_filename
 		default_config_filename = debug_values.default_config_filename
 		pipeline_dna_callers 	= debug_values.pipeline_dna_callers
@@ -56,7 +56,7 @@ if __name__ == "__main__" or True:
 	
 	parser = cmd_parser.getCmdParser()
 	parser = parser.parse_args()
-	pprint(dir(parser))
+
 	debug_pipeline = parser.debug
 
 

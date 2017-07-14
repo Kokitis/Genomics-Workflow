@@ -52,6 +52,7 @@ class MainPipeline:
 		sample = sample.to_dict()
 		_use_value = sample.get('Use', False)
 		_use_this_sample = _use_value not in {False, 'false', 0, '0', 'no', 'No'}
+		_use_this_sample = _use_this_sample and sample['Histology'] == 'Esophagus Adenocarcinoma, NOS'
 		self._verifySampleFiles(sample, sample_options)
 
 
@@ -75,6 +76,7 @@ class MainPipeline:
 				somaticseq_status = SomaticSeqPipeline(sample, sample_options, somaticseq_callers)
 		else:
 			print("SKIPPED SAMPLE")
+		print()
 
 	def _verifySampleFiles(self, sample, options, print_errors = True):
 		""" Verifies that all required sample files exist and are not corrupted. """
