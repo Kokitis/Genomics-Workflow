@@ -14,7 +14,7 @@ def _toLower(array):
 class MainPipeline:
 	def __init__(self, sample_filename, options_filename, dna_callers = None, copynumber_callers = None, rna_callers = None, somaticseq_callers = None, **kwargs):
 
-		if True:
+		if False:
 			print("sample filename: ", sample_filename)
 			print("options filename: ", options_filename)
 			print("DNA-seq callers: ", dna_callers)
@@ -54,6 +54,12 @@ class MainPipeline:
 		_use_this_sample = _use_value not in {False, 'false', 0, '0', 'no', 'No'}
 		self._verifySampleFiles(sample, sample_options)
 
+
+		print(sample['PatientID'])
+		print("\tDNA-seq callers: ", dna_callers)
+		print("\tRNA-seq callers: ", rna_callers)
+		print("\tCopynumber callers: ", copynumber_callers)
+		print("\tSomaticSeq callers: ", somaticseq_callers)
 		if _use_this_sample:
 			sample_status = list()
 			if dna_callers:
@@ -67,8 +73,10 @@ class MainPipeline:
 				sample_status.append(cn_pipeline_status)
 			if somaticseq_callers:
 				somaticseq_status = SomaticSeqPipeline(sample, sample_options, somaticseq_callers)
+		else:
+			print("SKIPPED SAMPLE")
 
-	def _verifySampleFiles(self, sample, options):
+	def _verifySampleFiles(self, sample, options, print_errors = True):
 		""" Verifies that all required sample files exist and are not corrupted. """
 		#Verify BAM Files
 		self._checkIfPathExists('NormalBAM', sample['NormalBAM'])
@@ -77,14 +85,20 @@ class MainPipeline:
 		md5_normal = filetools.generateFileMd5(sample['NormalBAM'])
 		expected_md5sum_normal = gdc_api.request(sample['NormalUUID'], 'files')
 		if md5_normal != expected_md5sum_normal and not options['globals']['debug']:
-			message = "The Normal BAM (ID {}) does not have the correct md5sum!".format(sample['NormalID'])
-			raise ValueError(message)
+			message = "\tThe Normal BAM (ID {}) does not have the correct md5sum!".format(sample['NormalID'])
+			if not print_errors:
+				raise ValueError(message)
+			else:
+				print(message)
 
 		md5_sample = filetools.generateFileMd5(sample['TumorBAM'])
 		expected_md5sum_sample = gdc_api.request(sample['SampleUUID'], 'files')
 		if md5_sample != expected_md5sum_sample and not options['globals']['debug']:
-			message = "The Tumor BAM (ID {}) does not have the correct md5sum!".format(sample['SampleID'])
-			raise ValueError(message)
+			message = "\tThe Tumor BAM (ID {}) does not have the correct md5sum!".format(sample['SampleID'])
+			if not print_errors:
+				raise ValueError(message)
+			else:
+				print(message)
 
 		#Verify exome targets File
 		self._checkIfPathExists("the exome targets", sample['ExomeTargets'])

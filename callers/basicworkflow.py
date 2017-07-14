@@ -61,14 +61,10 @@ class Workflow:
 			self.output_folder,
 			self.caller_name + ".readme.txt"
 		)
-		print("Folder exists: ", os.path.exists(self.output_folder))
-		print("overwrite", options['globals']['overwrite'], type(options['globals']['overwrite']))
 
 
 		if options['globals']['overwrite'] and os.path.exists(self.output_folder):
 			shutil.rmtree(self.output_folder)
-		print(self.output_folder)
-		print("Folder Exists: ", os.path.exists(self.output_folder))
 
 		if options['globals']['debug']:
 			print("Running ", self.caller_name)

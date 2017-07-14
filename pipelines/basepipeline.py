@@ -4,7 +4,7 @@ import os
 class BasePipeline:
 
 	def __init__(self, sample, pipeline_options, callers):
-		if True:
+		if False:
 			print("Callers to use: ", callers)
 		
 		self._verifyPipelineFiles(pipeline_options)

@@ -44,7 +44,6 @@ class SomaticSeq(Workflow):
 		self.split_callset_folder 		= options.getPipelineFolder('somaticseq-callset', sample['PatientID'], 'original-split')
 
 	def runCallerWorkflow(self, sample):
-		print("Running Workflow...")
 		patientId = sample['PatientID']
 		callset = self._getRawCallset()
 		#pprint(callset)
@@ -157,7 +156,7 @@ class SomaticSeq(Workflow):
 			Note: The only records that are merged are those that are
 			unfiltered in at least one caller.
 		"""
-		print("Merging files...")
+		print("\tMerging files...")
 		output_filename = os.path.join(
 			output_folder,
 			"{}.{}.modified.merged.vcf".format(patientId, self.mode)
@@ -188,7 +187,7 @@ class SomaticSeq(Workflow):
 		return output_filename
 	
 	def _filterVariantTargets(self, input_filename, output_folder, patientId):
-		print("Excluding non-exome targets...")
+		print("\tExcluding non-exome targets...")
 		output_filename = os.path.join(
 			output_folder,
 			"{}.{}.modified.merged.excluded.vcf".format(patientId, self.mode)
@@ -205,14 +204,13 @@ class SomaticSeq(Workflow):
 			command = command, 
 			label = "Filtering Targets", 
 			expected_output = output_filename, 
-			output_filename = output_filename,
-			verbose = ['command', 'status']
+			output_filename = output_filename
 		)
 		#print("\tResult: {}\t{}".format(os.path.exists(output_filename), output_filename))
 		return output_filename
 	
 	def _generateCovariateTable(self, sample, callset, merged_callset, output_folder):
-		print("Generating the covariate table...")
+		print("\tGenerating the covariate table...")
 		#start_time = time.time()
 		output_filename = os.path.join(
 			output_folder,
@@ -264,7 +262,7 @@ class SomaticSeq(Workflow):
 		return output_filename
 
 	def _convertToVcf(self, sample, input_filename):
-		print("Converting to a VCF file...")
+		print("\tConverting to a VCF file...")
 
 		output_filename = os.path.splitext(input_filename)[0] + ".vcf"
 
@@ -290,7 +288,7 @@ class SomaticSeq(Workflow):
 		
 
 	def buildTrainer(self, input_filename):
-		print("Building model...")
+		print("\tBuilding model...")
 		command = "{script} {infile}".format(
 			script = self.ada_trainer_script,
 			infile = input_filename
@@ -312,7 +310,7 @@ class SomaticSeq(Workflow):
 		output_filename = "{}.predicted_scores.tsv".format(basename)
 		output_filename = os.path.join(output_folder, output_filename)
 
-		print("Predicting Scores...")
+		print("\tPredicting Scores...")
 		command = "{script} {classifier} {infile} {outfile}".format(
 			script = self.ada_prediction_script,
 			classifier = self.ss_classifier,
