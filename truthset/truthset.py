@@ -22,8 +22,6 @@ class TruthsetPipeline:
 			)
 			truthsets.append(result)
 
-		pprint(truthsets)
-
 	def runWorkflow(self, sample, workflow_options, truthset_type):
 
 		truthset_indel = Truthset(sample, workflow_options, 'indel', truthset_type)
@@ -47,10 +45,7 @@ class Truthset:
 				truthset_type = {'rna', 'intersection'}
 		"""
 		########################### Define Common Attributes ##################
-		self.debug = True
-		if self.debug:
-
-			print("\ttruthset_type = {}".format(truthset_type))
+		self.debug = False
 
 		# Parameters to use when generating the truthsets.
 		if isinstance(sample, str): patientId = sample 
