@@ -52,7 +52,8 @@ class MainPipeline:
 		sample = sample.to_dict()
 		_use_value = sample.get('Use', False)
 		_use_this_sample = _use_value not in {False, 'false', 0, '0', 'no', 'No'}
-		_use_this_sample = _use_this_sample and sample['Histology'] == 'Esophagus Adenocarcinoma, NOS'
+		if 'Histology' in sample:
+			_use_this_sample = _use_this_sample and sample['Histology'] == 'Esophagus Adenocarcinoma, NOS'
 		self._verifySampleFiles(sample, sample_options)
 
 

@@ -39,6 +39,6 @@ class MuSE(Workflow):
 			call_output = self.call_output,
 			output 		= self.sump_output)
 		label = "MuSE Sump"
-		output_result = self.runCallerCommand(sump_command, label, self.sump_output)
+		output_result = self.runCallerCommand(sump_command, label, self.sump_output, verbose = ['command', 'output'])
 
 		return output_result
