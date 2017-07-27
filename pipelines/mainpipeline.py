@@ -33,7 +33,7 @@ class MainPipeline:
 		sample_list = tabletools.Table(sample_filename)
 		pipeline_options = Settings(options_filename, **kwargs)
 
-		for index, current_sample in sample_list:
+		for index, current_sample in enumerate(sample_list):
 			self._runSample(
 				current_sample,
 				pipeline_options,

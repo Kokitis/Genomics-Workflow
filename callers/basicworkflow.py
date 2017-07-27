@@ -109,7 +109,7 @@ class Workflow:
 			expected_output = expected_output,
 			command_filename = self.console_file,
 			#output_filename = output_filename,
-			verbose = ['all'],
+			verbose = ['label'],
 			**kwargs
 		)
 
