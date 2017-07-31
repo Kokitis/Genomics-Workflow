@@ -7,9 +7,32 @@ import os
 from github import tabletools
 from github import filetools
 from github import gdc_api
+from github import callertools
+
+caller_classifier = callertools.CallerClassifier()
 
 def _toLower(array):
 	return [i.lower() for i in array]
+
+def _getMissingCallers(callset_folder):
+	existing_callset = caller_classifier(callset_folder)
+	from pprint import pprint
+
+	print(callset_folder)
+	pprint(existing_callset)
+	missing = list()
+	if 'muse' not in existing_callset:
+			missing.append('muse')
+	if 'mutect' not in existing_callset:
+		missing.append('mutect')
+	if 'somaticsniper' not in existing_callset:
+		missing.append('somaticseq')
+	if 'strelka-snp' not in existing_callset or 'strelka-indel' not in existing_callset:
+		missing.append('strelka')
+	if 'varscan-snp' not in existing_callset:
+		missing.append('varscan')
+	return missing
+
 
 class MainPipeline:
 	def __init__(self, sample_filename, options_filename, dna_callers = None, copynumber_callers = None, rna_callers = None, somaticseq_callers = None, **kwargs):
@@ -54,8 +77,13 @@ class MainPipeline:
 		_use_this_sample = _use_value not in {False, 'false', 0, '0', 'no', 'No'}
 		if 'Histology' in sample:
 			_use_this_sample = _use_this_sample and sample['Histology'] == 'Esophagus Adenocarcinoma, NOS'
-		self._verifySampleFiles(sample, sample_options)
+		if _use_this_sample:
+			
+			self._verifySampleFiles(sample, sample_options)
 
+		if 'missing' in dna_callers:
+			dna_callset_folder = sample_options.getPipelineFolder('callset', sample['PatientID'])
+			dna_callers = _getMissingCallers(dna_callset_folder)
 
 		print(sample['PatientID'])
 		print("\tDNA-seq callers: ", dna_callers)

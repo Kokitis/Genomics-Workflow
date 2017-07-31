@@ -253,8 +253,9 @@ class Workflow:
 		# Download The Files
 		download_output = os.path.join(self.output_folder, file_id, file_name)
 		download_command = gdc_api.generateCommand(file_id, folder = self.output_folder)
+
 		download_status = self.runCallerCommand(
-			download_command, 'Downloading GDC File', download_output, verbose = [])
+			download_command, 'Downloading GDC File', download_output, verbose = 'all')
 
 		# Extract the Files
 		extract_command = "gunzip {fn}".format(fn = download_output)
