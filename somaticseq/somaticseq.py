@@ -219,7 +219,8 @@ class SomaticSeq(Workflow):
 			command = command, 
 			label = "Filtering Targets", 
 			expected_output = output_filename, 
-			output_filename = output_filename
+			output_filename = output_filename,
+			verbose = []
 		)
 		#print("\tResult: {}\t{}".format(os.path.exists(output_filename), output_filename))
 		return output_filename
