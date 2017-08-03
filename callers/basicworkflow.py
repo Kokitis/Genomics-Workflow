@@ -100,8 +100,10 @@ class Workflow:
 			expected_output = []
 		elif isinstance(expected_output, str):
 			expected_output = [expected_output]
-	
-		if 'verbose' in kwargs: kwargs.pop('verbose')
+		
+		verbose_level = kwargs.get('verbose', ['label'])
+		if 'verbose' in kwargs:
+			kwargs.pop('verbose')
 		self.addToReadme(command, label, expected_output)
 		caller_session = systemtools.Terminal(
 			command,
@@ -109,7 +111,7 @@ class Workflow:
 			expected_output = expected_output,
 			command_filename = self.console_file,
 			#output_filename = output_filename,
-			verbose = ['label'],
+			verbose = verbose_level,
 			**kwargs
 		)
 
