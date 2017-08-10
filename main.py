@@ -8,7 +8,7 @@ import os
 # ----------------------------------------------------------------------------------------------------
 # --------------------------------------------- Main -------------------------------------------------
 # ----------------------------------------------------------------------------------------------------
-def runVariantDiscoveryPipeline(cmd_options = None, debug_pipeline = True):
+def runVariantDiscoveryPipeline(cmd_options = None, debug_pipeline = False):
 	if debug_pipeline:
 		default_sample_filename = debug_values.default_sample_filename
 		default_config_filename = debug_values.default_config_filename
@@ -32,7 +32,7 @@ def runVariantDiscoveryPipeline(cmd_options = None, debug_pipeline = True):
 		rna_callers = pipeline_rna_callers,
 		copynumber_callers = pipeline_copynumber_callers,
 		somaticseq_callers = somaticseq_callers,
-		debug = True
+		debug = False
 	)
 
 
