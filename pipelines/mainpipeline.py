@@ -73,6 +73,11 @@ class MainPipeline:
 
 	def _runSample(self, sample, sample_options, dna_callers, copynumber_callers, rna_callers, somaticseq_callers):
 		sample = sample.to_dict()
+		print(sample['PatientID'])
+		print("\tDNA-seq callers: ", dna_callers)
+		print("\tRNA-seq callers: ", rna_callers)
+		print("\tCopynumber callers: ", copynumber_callers)
+		print("\tSomaticSeq callers: ", somaticseq_callers)
 		_use_value = sample.get('Use', False)
 		_use_this_sample = _use_value not in {False, 'false', 0, '0', 'no', 'No'}
 		if 'Histology' in sample:
@@ -85,11 +90,7 @@ class MainPipeline:
 			dna_callset_folder = sample_options.getPipelineFolder('callset', sample['PatientID'])
 			dna_callers = _getMissingCallers(dna_callset_folder)
 
-		print(sample['PatientID'])
-		print("\tDNA-seq callers: ", dna_callers)
-		print("\tRNA-seq callers: ", rna_callers)
-		print("\tCopynumber callers: ", copynumber_callers)
-		print("\tSomaticSeq callers: ", somaticseq_callers)
+
 		if _use_this_sample:
 			sample_status = list()
 			if dna_callers:
