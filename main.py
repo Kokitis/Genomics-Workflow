@@ -4,12 +4,12 @@ from pipelines import MainPipeline
 from truthset import TruthsetPipeline
 import debug_values
 import cmd_parser
-
+import os
 # ----------------------------------------------------------------------------------------------------
 # --------------------------------------------- Main -------------------------------------------------
 # ----------------------------------------------------------------------------------------------------
 def runVariantDiscoveryPipeline(cmd_options = None, debug_pipeline = True):
-	if debug_pipeline or cmd_options is None:
+	if debug_pipeline:
 		default_sample_filename = debug_values.default_sample_filename
 		default_config_filename = debug_values.default_config_filename
 		pipeline_dna_callers 	= debug_values.pipeline_dna_callers
@@ -17,12 +17,13 @@ def runVariantDiscoveryPipeline(cmd_options = None, debug_pipeline = True):
 		pipeline_copynumber_callers = debug_values.pipeline_copynumber_callers
 		somaticseq_callers 		= debug_values.somaticseq_callers
 	else:
-		default_sample_filename = ""
-		default_config_filename = ""
-		pipeline_dna_callers = []
-		pipeline_rna_callers = []
-		pipeline_copynumber_callers = []
-		somaticseq_callers = ""
+		PIPELINE_FOLDER = os.path.join(os.getenv("HOME"), "Documents", "Variant_Discovery_Pipeline")
+		default_sample_filename = os.path.join(PIPELINE_FOLDER, "sample_list.tsv")
+		default_config_filename = os.path.join(PIPELINE_FOLDER, "0_config_files", "pipeline_project_options.txt")
+		pipeline_dna_callers = ['all']
+		pipeline_rna_callers = ['all']
+		pipeline_copynumber_callers = ['all']
+		somaticseq_callers = ['table']
 
 	pipeline = MainPipeline(
 		default_sample_filename,
