@@ -20,9 +20,9 @@ def runVariantDiscoveryPipeline(cmd_options = None, debug_pipeline = False):
 		PIPELINE_FOLDER = os.path.join(os.getenv("HOME"), "Documents", "Variant_Discovery_Pipeline")
 		default_sample_filename = os.path.join(PIPELINE_FOLDER, "sample_list.tsv")
 		default_config_filename = os.path.join(PIPELINE_FOLDER, "0_config_files", "pipeline_project_options.txt")
-		pipeline_dna_callers = ['all']
-		pipeline_rna_callers = ['all']
-		pipeline_copynumber_callers = ['all']
+		pipeline_dna_callers = ['missing']
+		pipeline_rna_callers = []
+		pipeline_copynumber_callers = []
 		somaticseq_callers = ['table']
 
 	pipeline = MainPipeline(

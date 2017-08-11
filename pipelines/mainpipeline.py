@@ -114,19 +114,22 @@ class MainPipeline:
 		self._checkIfPathExists('NormalBAM', sample['NormalBAM'])
 		self._checkIfPathExists('TumorBAM',  sample['TumorBAM'])
 
+		_error_message = message = "\tThe Tumor BAM (ID {}) does not have the correct md5sum!\n\tPath\t{}\n\tExpected\t{}\n\tReceived\t{}"
+
 		md5_normal = filetools.generateFileMd5(sample['NormalBAM'])
-		expected_md5sum_normal = gdc_api.request(sample['NormalUUID'], 'files')
+		expected_md5sum_normal = gdc_api.request(sample['NormalUUID'], 'files')['md5sum']
 		if md5_normal != expected_md5sum_normal and not options['globals']['debug']:
-			message = "\tThe Normal BAM (ID {}) does not have the correct md5sum!".format(sample['NormalID'])
+			#message = "\tThe Normal BAM (ID {}) does not have the correct md5sum!".format(sample['NormalID'])
+			message = _error_message.format(sample['NormalID'], sample['NormalBAM'], expected_md5sum_normal, md5_normal)
 			if not print_errors:
 				raise ValueError(message)
 			else:
 				print(message)
 
 		md5_sample = filetools.generateFileMd5(sample['TumorBAM'])
-		expected_md5sum_sample = gdc_api.request(sample['SampleUUID'], 'files')
+		expected_md5sum_sample = gdc_api.request(sample['SampleUUID'], 'files')['md5sum']
 		if md5_sample != expected_md5sum_sample and not options['globals']['debug']:
-			message = "\tThe Tumor BAM (ID {}) does not have the correct md5sum!".format(sample['SampleID'])
+			message = _error_message.format(sample['SampleID'], sample['TumorBAM'], expected_md5sum_sample, md5_sample)
 			if not print_errors:
 				raise ValueError(message)
 			else:
