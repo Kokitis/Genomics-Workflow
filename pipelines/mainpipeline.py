@@ -55,8 +55,9 @@ class MainPipeline:
 
 		sample_list = tabletools.Table(sample_filename)
 		pipeline_options = Settings(options_filename, **kwargs)
-
+		self._current_index = 0
 		for index, current_sample in enumerate(sample_list):
+			self._current_index = "{} of {}".format(index, len(sample_list))
 			self._runSample(
 				current_sample,
 				pipeline_options,
@@ -73,7 +74,7 @@ class MainPipeline:
 
 	def _runSample(self, sample, sample_options, dna_callers, copynumber_callers, rna_callers, somaticseq_callers):
 		sample = sample.to_dict()
-		print(sample['PatientID'])
+		print("{} ({})".format(sample['PatientID'], self._current_index))
 		print("\tDNA-seq callers: ", dna_callers)
 		print("\tRNA-seq callers: ", rna_callers)
 		print("\tCopynumber callers: ", copynumber_callers)
