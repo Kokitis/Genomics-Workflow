@@ -57,7 +57,7 @@ class MainPipeline:
 		pipeline_options = Settings(options_filename, **kwargs)
 		self._current_index = 0
 		for index, current_sample in enumerate(sample_list):
-			self._current_index = "{} of {}".format(index, len(sample_list))
+			self._current_index = "{} of {}".format(index + 1, len(sample_list))
 			self._runSample(
 				current_sample,
 				pipeline_options,

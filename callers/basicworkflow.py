@@ -116,8 +116,12 @@ class Workflow:
 		)
 
 		#self._verifySessionStatus(caller_session)
-		self.verifyOutputFiles(expected_output)
-
+		try:
+			self.verifyOutputFiles(expected_output)
+		except FileNotFoundError:
+			print(caller_session.output)
+			raise FileNotFoundError()
+			
 		command_status = caller_session.getStatus()
 		return command_status
 
