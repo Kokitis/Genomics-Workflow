@@ -144,7 +144,7 @@ class SomaticSeq(Workflow):
 
 			output_filename = os.path.join(
 				output_folder, 
-				"{}.training.modified.vcf".format(patientId)
+				"{}.{}.vjsd.modified.vcf".format(patientId, caller)
 			)
 
 			if method:
