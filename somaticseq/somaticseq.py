@@ -161,6 +161,24 @@ class SomaticSeq(Workflow):
 			else:
 				shutil.copy2(input_file, output_filename)
 
+			# Check if an extra #Chrom header line was added.
+			chrom_lines = 0
+			with open(output_filename, 'r') as tempfile:
+				for line in tempfile.read().splitlines():
+					if line.startswith("#CHROM"):
+						chrom_lines +=1
+			if chrom_lines > 1:
+				already_deleted = False
+				with open(output_filename, 'r') as tempfile:
+					with open(output_filename + 'temp', 'w') as otherfile:
+						for line in tempfile.read().splitlines():
+							if line.startswith('#CHROM') and already_deleted:
+								otherfile.write(line + '\n')
+							else:
+								already_deleted = True
+				shutil.copy2(otherfile, output_filename)
+
+
 			processed_callset[caller] = output_filename
 
 
